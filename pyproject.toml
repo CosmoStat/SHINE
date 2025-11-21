@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61", "setuptools-scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shine"
+dynamic = ["version"]
+description = "A JAX-powered framework for probabilistic shear estimation in weak gravitational lensing"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    {name = "CosmoStat", email = ""}
+]
+license = {text = "MIT"}
+keywords = ["cosmology", "weak-lensing", "shear", "jax", "astronomy"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
+
+[tool.setuptools_scm]
+write_to = "shine/_version.py"
