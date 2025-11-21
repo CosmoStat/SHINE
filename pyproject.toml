@@ -9,20 +9,27 @@ description = "A JAX-powered framework for probabilistic shear estimation in wea
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [
-    {name = "CosmoStat", email = ""}
+    {name = "Emma Ayçoberry", email = "emma.aycoberry@cea.fr"},
+    {name = "Ezequiel Centofanti", email = "ezequiel.centofanti@cea.fr"},
+    {name = "Sam Farrens", email ="sam.farrens@cea.fr"},
+    {name = "Francois Lanusse", email = "francois.lanusse@cnrs.fr"}
 ]
-license = {text = "MIT"}
+license = "MIT"
 keywords = ["cosmology", "weak-lensing", "shear", "jax", "astronomy"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Astronomy",
 ]
+
+[tool.setuptools]
+packages = ["shine"]
 
 [tool.setuptools_scm]
 write_to = "shine/_version.py"
