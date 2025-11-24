@@ -1,363 +1,343 @@
-# Software Design Document
+# SHINE (SHear INference Environment) Design Document
 
 ## 1. Introduction
 
-### 1.1 Purpose of the Document
-This document describes the architecture and content of the SHINE (SHear INference Environment) software package.
+### 1.1 Purpose
+This document details the software architecture, design principles, and technical specifications for SHINE (SHear INference Environment). It serves as the primary reference for developers and contributors.
 
-### 1.2 Scope & Objective of the Software
-SHINE implements a forward model of gravitational shear in a fully differentiable pipeline using JAX. The software is designed to be applicable to different types of astronomical data (visible and radio) and returns a posterior on shear components. The implementation leverages probabilistic programming language (PPL) tools, particularly numpyro.
+### 1.2 Scope
+SHINE is a fully differentiable, forward-modeling pipeline for gravitational shear inference. It leverages JAX for automatic differentiation and GPU acceleration, `numpyro` for probabilistic programming, and `JAX-GalSim` for astronomical image simulation. The software is designed to handle data from major surveys (Euclid, LSST, MeerKAT) and aims to overcome limitations of traditional shear measurement methods (e.g., metacalibration) by directly inferring shear from pixel data within a Bayesian framework.
 
 ## 2. System Overview
 
-### 2.1 High-Level Description of the Software
-SHINE provides a forward modeling approach to constrain gravitational shear through the following workflow:
-- Generate high-resolution galaxies (using JAX-GalSim, VAE, diffusion models)
-- Apply shear and instrumental response (PSF)
-- Use the model to infer shear from real data (inference using HMC)
+### 2.1 Core Philosophy
+SHINE treats shear measurement as a Bayesian inverse problem. Instead of measuring ellipticities and correcting for biases, SHINE generates forward models of the sky, convolved with the instrument response, and compares them to observed data to infer the posterior distribution of shear parameters.
 
-The forward model is built entirely in JAX to ensure full differentiability. It contains all necessary components for application to different types of surveys, including radio and visible surveys such as MeerKAT, EUCLID, and LSST.
+### 2.2 Key Technologies
+*   **JAX**: The backbone for computation, providing `jit` compilation, `vmap` vectorization, and `grad` for HMC inference.
+*   **NumPyro**: Provides the probabilistic programming framework for defining hierarchical models and performing MCMC inference (NUTS/HMC).
+*   **JAX-GalSim**: A JAX port of GalSim used for differentiable galaxy profile rendering and PSF convolution.
+*   **BlackJAX**: (Optional/Alternative) Lower-level inference library if custom samplers are needed beyond NumPyro's offerings.
 
-### 2.2 Scientific Objectives
-The project aims to address limitations in metacalibration, a commonly used tool for shear measurement that:
-- Degrades observations
-- Only works for weak shear
-- Assumes strong knowledge of the PSF
+### 2.3 Architecture Diagram
 
-**Target Performance Goals:**
-- **Visible surveys:** m ≃ 2 × 10⁻³ and c ≃ 1.5 × 10⁻⁴ (Euclid requirements)
-- **Radio surveys:** m ≃ 6.7 × 10⁻³ and c ≃ 8.2 × 10⁻⁴
-
-**Key Advantages:**
-- Learn galaxy morphology and properties directly from data
-- Bypass ellipticities by directly inferring shear
-- Potential to disentangle shear and intrinsic alignments
-- Improve photometric redshift estimation
-
-**Challenges and Biases to Address:**
-- Model misspecification (realism of image pipeline, galaxy morphology, PSF models and errors)
-- Selection/detection biases and blending
-- Scalability
-- Interface with cosmology
-- Automated comparison with current methods
-
-### 2.3 Guiding Principles
-- Code must be pip installable on any platform
-- Fully written in JAX
-- Use JAX-GalSim when possible
-- Input via YAML configuration files
-
-### 2.4 Key Features/Capabilities
-- Applicable to radio data using JAX-GalSim for galaxy modeling and argosim PSF
-- Applicable to Euclid and LSST data with JAX-GalSim for galaxy and PSF modeling
-- Support for joint Euclid × LSST analysis
-
-
-## 3. Design Overview
-
-### 3.1 System Architecture
-
-```
-shine/
-├── __init__.py
-├── main.py
-├── config_handler.py
-├── scene_modelling/
-│   ├── __init__.py
-│   └── [modules]
-├── inference/
-│   ├── __init__.py
-│   ├── blackjax.py
-│   └── [modules]
-├── simulations/
-│   ├── __init__.py
-│   ├── euclid.py
-│   ├── lsst.py
-│   └── radio.py
-├── data/
-│   ├── __init__.py
-│   ├── euclid.py
-│   ├── lsst.py
-│   └── meerkat.py
-├── evaluation/
-│   ├── __init__.py
-│   ├── metrics.py
-│   ├── coverage.py
-│   └── comparison.py
-├── morphology/
-│   ├── __init__.py
-│   ├── parametric.py
-│   └── non_parametric.py
-├── modelling/
-│   ├── __init__.py
-│   ├── SED.py
-│   ├── psf.py
-│   └── [modules]
-└── wms.py
+```mermaid
+graph TD
+    Config[YAML Configuration] --> Loader[Config Handler]
+    Loader --> Scene[Scene Modelling (NumPyro + JAX-GalSim)]
+    
+    subgraph "Forward Model (JAX)"
+        Priors[Priors (NumPyro)] --> Scene
+        Scene --> Galaxy[Galaxy Generation (Sersic/Morphology)]
+        Scene --> PSF[PSF Modelling]
+        Galaxy --> Convolve[Convolution]
+        PSF --> Convolve
+        Convolve --> Noise[Noise Model]
+        Noise --> ModelImage[Simulated Image]
+    end
+    
+    Data[Observed Data (Fits/HDF5)] --> Likelihood
+    ModelImage --> Likelihood[Likelihood Evaluation]
+    
+    Likelihood --> Inference[Inference Engine (NumPyro/BlackJAX)]
+    Inference --> Posterior[Shear Posterior]
+    
+    subgraph "Workflow Management"
+        WMS[WMS (Slurm/Cluster)] --> Config
+        WMS --> Data
+    end
 ```
 
-### 3.2 External Interfaces
+## 3. Detailed Component Design
 
-#### Data Input Interfaces:
-- MeerKAT
-- Euclid
-- LSST
+### 3.1 Configuration Handler
+**Responsibility**: Parse YAML configuration files and validate inputs.
+**Implementation**:
+*   Uses `pydantic` or standard `yaml` libraries for robust validation.
+*   Converts physical units (e.g., arcsec to radians) to internal consistency.
+*   **Key Config Sections**: `Scene`, `PSF`, `Survey` (Euclid/LSST/MeerKAT), `Inference`, `Compute`.
+*   **GalSim Compatibility**: Supports standard GalSim YAML structure for defining scene components. Any parameter defined as a distribution (e.g., `Normal`, `LogNormal`) is automatically treated as a latent variable for inference.
 
-#### Simulation Interfaces:
-- Flagship
-- CosmoDC2
+### 3.2 Scene Modelling (`shine.scene_modelling`)
+**Responsibility**: Define the generative model of the astronomical scene.
+**Integration**:
+*   **NumPyro Integration**: The core function is a `numpyro` model. It defines random variables for galaxy properties (flux, size, ellipticity, position) and global parameters (shear, PSF properties).
+*   **Hierarchical Models**: Supports partial pooling for galaxy populations (e.g., drawing individual galaxy Sersic indices from a population-level distribution).
+*   **JAX-GalSim Usage**: Inside the model, `jax_galsim` objects (`Sersic`, `Gaussian`, `Shear`) are created using the sampled parameters.
+    *   *Limitation Handling*: Since `jax_galsim` objects are immutable, the pipeline must be purely functional. No in-place modifications.
+    *   *Vectorization*: Uses `jax.vmap` or `numpyro.plate` to efficiently render thousands of galaxies.
 
-### 3.3 Third-Party Libraries
-- JAX
-- JAX-GalSim
-- argosim
-- numpyro
-
-## 4. Detailed Software Components
-
-### 4.1 Configuration Handler Module
-Reads the input YAML configuration file and launches the code.
-
-**Example usage:**
+**Code Structure Example**:
 ```python
-shine.read_input(scene_config, sims_config, data_config,
-                 psf_config, forward_model_config, inference_config)
+def model(data, config):
+    # Global Shear
+    g1 = numpyro.sample("g1", dist.Normal(0, 0.05))
+    g2 = numpyro.sample("g2", dist.Normal(0, 0.05))
+    shear = jax_galsim.Shear(g1=g1, g2=g2)
+    
+    # Plate for N galaxies
+    with numpyro.plate("galaxies", config.n_galaxies):
+        flux = numpyro.sample("flux", dist.LogNormal(...))
+        # ... other params ...
+        
+        # Deterministic transformation (rendering)
+        # Note: This needs careful vectorization with JAX-GalSim
+        image = render_scene(flux, ..., shear)
+        
+    numpyro.sample("obs", dist.Normal(image, sigma), obs=data)
 ```
 
-### 4.2 Scene Modelling Sub-package
-Creates a scene of galaxies with desired properties using a probabilistic model. Includes generation of galaxies, PSF, and noise.
+### 3.3 Inference Engine (`shine.inference`)
+**Responsibility**: Perform Bayesian inference to obtain posteriors.
+**Methods**:
+*   **NUTS (No-U-Turn Sampler)**: Default high-performance sampler provided by NumPyro.
+*   **SVI (Stochastic Variational Inference)**: For faster, approximate results on large datasets.
+*   **BlackJAX Integration**: Wrappers for BlackJAX samplers if specific HMC variations are required.
+**Optimization**:
+*   Uses `jax.jit` to compile the likelihood and gradient functions.
+*   Supports reparameterization (e.g., `LocScaleReparam`) to improve geometry for hierarchical models.
 
-**Input:** Configuration file allowing selection of components (PSF model, galaxy model, etc.). Compatible with GalSim.
-**Output:** Log probability function for direct use in numpyro inference, or probability of parameters for external use.
+### 3.4 Simulation & Data Interfaces (`shine.simulations`, `shine.data`)
+**Responsibility**: Standardize input data from various sources.
+**Modules**:
+*   `euclid`: Handles Euclid-specific PSF models and pixel scales.
+*   `lsst`: Handles LSST bands and observing conditions.
+*   `radio`: Handles visibility data or dirty images (if operating in image plane) for MeerKAT.
+**Abstraction**:
+*   All modules return a standardized `Observation` object containing: `image_data`, `noise_map`, `psf_model`, `wcs`.
 
-#### 4.2.1 Scene Modeling API Example
+### 3.5 Morphology (`shine.morphology`)
+**Responsibility**: Generate galaxy surface brightness profiles.
+**Types**:
+*   **Parametric**: Standard Sersic profiles via `jax_galsim`.
+*   **Non-Parametric**:
+    *   *VAE/GAN*: Generative models trained on high-resolution data (e.g., COSMOS) to produce realistic morphologies.
+    *   *Basis Functions*: Shapelets or other basis sets if supported by JAX-GalSim.
 
-SHINE extends GalSim's scene building approach by integrating probabilistic programming through numpyro. While GalSim provides deterministic scene generation, SHINE wraps these components in probabilistic distributions to enable Bayesian inference.
+### 3.6 Workflow Management System (WMS)
+**Responsibility**: Orchestrate large-scale runs on HPC clusters.
+**Features**:
+*   **Patching**: Splits large survey fields into manageable patches.
+*   **Job Submission**: Generates SLURM scripts.
+*   **Monitoring**: Tracks job status and aggregates results.
 
-**Traditional GalSim Approach:**
-```python
-# Standard GalSim scene construction
-import galsim
+## 4. Development & Standards
 
-# Define galaxy with fixed parameters
-gal = galsim.Sersic(n=4, half_light_radius=0.5, flux=1e4)
-psf = galsim.Gaussian(sigma=0.1)
-final = galsim.Convolve([gal, psf])
-image = final.drawImage(scale=0.2)
+### 4.1 Code Standards
+*   **Style**: Black, isort.
+*   **Typing**: Full type hinting (PEP 484).
+*   **Documentation**: Google-style docstrings, Sphinx + ReadTheDocs.
+*   **Testing**: `pytest` for unit tests. `chex` for JAX-specific testing (array shapes, types).
+
+### 4.2 JAX-GalSim Specifics
+*   **RNG**: JAX uses a functional PRNG. `jax_galsim`'s RNG handling must be carefully managed to ensure reproducibility, especially within `numpyro` models which manage their own RNG keys.
+*   **Performance**: Avoid Python loops in the rendering path. Use `vmap` or `scan`.
+
+### 4.3 Verification Strategy
+*   **Unit Tests**: Verify individual components (e.g., Sersic profile generation matches analytical expectations).
+*   **Integration Tests**: End-to-end run on a small synthetic patch.
+*   **Validation**:
+    *   *Self-Consistency*: Generate data with known shear, infer it back, check if truth is within posterior credible intervals.
+    *   *Comparison*: Compare results with standard GalSim (non-JAX) for identical inputs to ensure numerical accuracy.
+
+## 5. Roadmap
+1.  **Phase 1**: Prototype with simple parametric models (Sersic) and constant PSF.
+2.  **Phase 2**: Integration of realistic PSF models (Euclid/LSST specific).
+3.  **Phase 3**: Non-parametric galaxy morphology (VAE/Diffusion).
+4.  **Phase 4**: Large-scale validation on Flagship/CosmoDC2 simulations.
+
+## 6. End-to-End Usage Example
+
+This section demonstrates the complete workflow from configuration to inference, highlighting the interaction between `shine` components.
+
+### 6.1 GalSim-Compatible Configuration
+
+SHINE adopts the GalSim YAML structure but interprets it in a probabilistic context.
+
+> [!NOTE]
+> **Standard GalSim vs. SHINE Extensions**:
+> *   **Standard**: `image`, `psf`, `gal` top-level keys. Use of `type` to specify profiles (e.g., `Sersic`, `Gaussian`).
+> *   **SHINE Extension**: In standard GalSim, defining a random distribution (e.g., `type: Normal`) draws a *single fixed value* for that simulation. In SHINE, this defines a **prior distribution** for a latent variable that will be inferred.
+
+**Example Config (`configs/euclid_run.yaml`):**
+
+```yaml
+# Top-level simulation parameters (Standard GalSim)
+image:
+  pixel_scale: 0.1  # arcsec/pixel
+  size_x: 64
+  size_y: 64
+  noise:
+    type: Gaussian
+    sigma: 1.0
+
+# PSF Definition (Fixed for this example)
+psf:
+  type: Gaussian
+  sigma: 0.1
+
+# Galaxy Definition (Probabilistic)
+gal:
+  type: Sersic
+  # Fixed parameter (Standard GalSim behavior)
+  n: 4.0 
+  
+  # Probabilistic parameters (SHINE Interpretation: Latent Variables)
+  flux:
+    type: LogNormal
+    mean: 1000.0
+    sigma: 0.5
+    
+  half_light_radius:
+    type: Uniform
+    min: 0.1
+    max: 1.0
+
+  shear:
+    type: G1G2
+    g1: 
+      type: Normal
+      mean: 0.0
+      sigma: 0.05
+    g2: 
+      type: Normal
+      mean: 0.0
+      sigma: 0.05
 ```
 
-**SHINE Probabilistic Scene Modeling:**
+### 6.2 Main Execution Script
+
 ```python
-import shine
+# shine/main_example.py
+import jax
+from shine.config import ConfigHandler
+from shine.scene import SceneBuilder
+from shine.inference import HMCInference
+from shine.data import DataLoader
+
+def main():
+    # 1. Load Configuration
+    # Parses YAML, validates types, and converts units (e.g., arcsec -> radians)
+    config = ConfigHandler.load("configs/euclid_run.yaml")
+    
+    # 2. Load Data
+    # Returns a standardized Observation object containing:
+    # - image: jax.numpy array of pixel data
+    # - noise_map: variance map
+    # - psf_model: JAX-GalSim PSF object or kernel
+    # - wcs: World Coordinate System info
+    observation = DataLoader.load(config.data_path)
+    
+    # 3. Build the Probabilistic Model
+    # SceneBuilder initializes the NumPyro model function.
+    # It pre-compiles JAX-GalSim components based on config.
+    scene_builder = SceneBuilder(config)
+    model_fn = scene_builder.build_model()
+    
+    # 4. Initialize Inference Engine
+    # Sets up the NUTS sampler with specified parameters
+    inference_engine = HMCInference(
+        model=model_fn,
+        num_warmup=config.inference.warmup,
+        num_samples=config.inference.samples,
+        num_chains=config.inference.chains,
+        dense_mass=config.inference.dense_mass # Use dense mass matrix if correlated
+    )
+    
+    # 5. Run Inference
+    # Executes the MCMC chain.
+    # Uses JAX's PRNGKey for reproducibility.
+    print("Starting inference...")
+    rng_key = jax.random.PRNGKey(42)
+    results = inference_engine.run(
+        rng_key=rng_key, 
+        observed_data=observation.image,
+        extra_args={"psf": observation.psf_model}
+    )
+    
+    # 6. Analyze and Save Results
+    # Results object contains posterior samples and convergence diagnostics (r_hat)
+    print(f"Inferred Shear g1: {results.samples['g1'].mean():.5f} ± {results.samples['g1'].std():.5f}")
+    print(f"Inferred Shear g2: {results.samples['g2'].mean():.5f} ± {results.samples['g2'].std():.5f}")
+    
+    results.save(config.output_path / "posterior.nc") # Save as NetCDF/ArviZ compatible
+
+if __name__ == "__main__":
+    main()
+```
+
+### 6.3 Internal Model Structure (`SceneBuilder`)
+
+The `SceneBuilder` constructs the `numpyro` model by parsing the GalSim-style YAML.
+
+```python
+# Inside shine/scene/builder.py
 import numpyro
 import numpyro.distributions as dist
 import jax.numpy as jnp
-from jax import random
+import jax_galsim as galsim
 
-def shine_scene_model(data=None, config=None):
-    """
-    Probabilistic scene model that combines GalSim components with numpyro PPL.
-    This function defines the generative model for the scene.
-    """
+class SceneBuilder:
+    def __init__(self, config):
+        self.config = config
 
-    # === Shear Parameters (what we want to infer) ===
-    g1 = numpyro.sample('g1', dist.Normal(0., 0.05))
-    g2 = numpyro.sample('g2', dist.Normal(0., 0.05))
-    shear = galsim.Shear(g1=g1, g2=g2)
+    def _parse_prior(self, name, param_config):
+        """Helper to create NumPyro distributions from config."""
+        if param_config['type'] == 'Normal':
+            return numpyro.sample(name, dist.Normal(param_config['mean'], param_config['sigma']))
+        elif param_config['type'] == 'LogNormal':
+             return numpyro.sample(name, dist.LogNormal(jnp.log(param_config['mean']), param_config['sigma']))
+        # ... other distributions ...
 
-    # === PSF Model ===
-    psf_sigma = numpyro.sample('psf_sigma',
-                                dist.Normal(config['psf_sigma_mean'], 0.01))
-    psf = galsim.Gaussian(sigma=psf_sigma)
+    def build_model(self):
+        """Returns a callable model function for NumPyro."""
+        
+        def model(observed_data=None, psf=None):
+            # --- 1. Global Parameters (Shear) ---
+            # Parsed from config.gal.shear
+            g1 = self._parse_prior("g1", self.config.gal.shear.g1)
+            g2 = self._parse_prior("g2", self.config.gal.shear.g2)
+            shear = galsim.Shear(g1=g1, g2=g2)
+            
+            # --- 2. Galaxy Population (Hierarchical) ---
+            # We use a plate to assume independence between galaxies given global params
+            n_galaxies = self.config.image.n_objects # Standard GalSim field
+            
+            with numpyro.plate("galaxies", n_galaxies):
+                # Sample morphological parameters from config
+                flux = self._parse_prior("flux", self.config.gal.flux)
+                hlr = self._parse_prior("hlr", self.config.gal.half_light_radius)
+                
+                # Fixed parameter example
+                n = self.config.gal.n 
+                
+                # Sample positions
+                x = numpyro.sample("x", dist.Uniform(0, self.config.image.size_x))
+                y = numpyro.sample("y", dist.Uniform(0, self.config.image.size_y))
 
-    # === Scene Configuration ===
-    n_galaxies = config.get('n_galaxies', 100)
+            # --- 3. Differentiable Rendering (JAX-GalSim) ---
+            # We define a helper to render a single galaxy
+            def render_one_galaxy(flux, hlr, n, x, y):
+                gal = galsim.Sersic(n=n, half_light_radius=hlr, flux=flux)
+                gal = gal.shear(shear)        # Gravitational
+                gal = galsim.Convolve([gal, psf])
+                # Draw onto a stamp or full image (simplified here)
+                return gal.drawImage(nx=self.config.image.size_x, 
+                                     ny=self.config.image.size_y, 
+                                     scale=self.config.image.pixel_scale,
+                                     offset=(x, y)).array
 
-    # Create empty image with specified dimensions
-    image_size = config['image_size']  # pixels
-    pixel_scale = config['pixel_scale']  # arcsec/pixel
-    image = galsim.ImageF(image_size, image_size, scale=pixel_scale)
-
-    # === Galaxy Population Model ===
-    with numpyro.plate('galaxies', n_galaxies):
-        # Morphological parameters with hierarchical priors
-        sersic_n = numpyro.sample('sersic_n',
-                                  dist.TruncatedNormal(2.5, 1.0, low=0.5, high=6.0))
-
-        hlr = numpyro.sample('half_light_radius',
-                             dist.LogNormal(jnp.log(0.5), 0.3))
-
-        flux = numpyro.sample('flux',
-                              dist.LogNormal(jnp.log(1e4), 0.5))
-
-        # Galaxy ellipticity prior (pre-shear)
-        e_intrinsic = numpyro.sample('e_intrinsic',
-                                      dist.Beta(2, 5))  # Peaks at low ellipticity
-
-        pa_intrinsic = numpyro.sample('position_angle',
-                                       dist.Uniform(0, jnp.pi))
-
-        # Position on detector (in pixels)
-        x_pos = numpyro.sample('x_pos',
-                                dist.Uniform(1, image_size))
-        y_pos = numpyro.sample('y_pos',
-                                dist.Uniform(1, image_size))
-
-    # === Render Each Galaxy ===
-    # Note: In JAX-GalSim, this would be vectorized
-    for i in range(n_galaxies):
-        # Build galaxy profile for this object
-        galaxy = galsim.Sersic(n=sersic_n[i],
-                               half_light_radius=hlr[i],
-                               flux=flux[i])
-
-        # Apply intrinsic ellipticity
-        galaxy = galaxy.shear(e=e_intrinsic[i],
-                             beta=pa_intrinsic[i] * galsim.radians)
-
-        # Apply gravitational shear
-        galaxy = galaxy.shear(shear)
-
-        # Convolve with PSF
-        final = galsim.Convolve([galaxy, psf])
-
-        # Draw object at specified position
-        # Direct drawing with center parameter (accumulates flux for overlapping galaxies)
-        final.drawImage(image=image,
-                       center=galsim.PositionD(x_pos[i], y_pos[i]),
-                       add_to_image=True)
-
-    # === Noise Model ===
-    noise_sigma = numpyro.sample('noise_sigma',
-                                 dist.HalfNormal(config['noise_estimate']))
-
-    # === Likelihood ===
-    if data is not None:
-        numpyro.sample('obs',
-                       dist.Normal(image, noise_sigma),
-                       obs=data)
-
-    return image
-
-# === Configuration Example ===
-scene_config = {
-    'image_size': 256,
-    'pixel_scale': 0.2,  # arcsec/pixel
-    'n_galaxies': 100,
-    'psf_sigma_mean': 0.1,
-    'noise_estimate': 10.0,
-    'variable_psf': True,
-    'n_psf_basis': 5
-}
-
-# === Inference Usage ===
-def run_shear_inference(observed_data, scene_config):
-    """
-    Run HMC to infer shear parameters from observed data.
-    """
-    from numpyro.infer import MCMC, NUTS
-
-    # Define the kernel
-    kernel = NUTS(shine_scene_model)
-
-    # Run MCMC
-    mcmc = MCMC(
-        kernel,
-        num_warmup=1000,
-        num_samples=2000,
-        num_chains=4
-    )
-
-    rng_key = random.PRNGKey(0)
-    mcmc.run(rng_key, data=observed_data, config=scene_config)
-
-    # Extract posterior samples
-    samples = mcmc.get_samples()
-
-    # Get shear posterior
-    g1_posterior = samples['g1']
-    g2_posterior = samples['g2']
-
-    return {
-        'g1': g1_posterior,
-        'g2': g2_posterior,
-        'full_samples': samples
-    }
+            # Vectorize rendering over all galaxies using vmap
+            # This is crucial for performance in JAX
+            galaxy_images = jax.vmap(render_one_galaxy)(flux, hlr, n, x, y)
+            
+            # Sum all galaxy images to get the model scene
+            model_image = jnp.sum(galaxy_images, axis=0)
+            
+            # --- 4. Likelihood ---
+            # Compare model image to observed data
+            sigma = self.config.image.noise.sigma
+            numpyro.sample("obs", dist.Normal(model_image, sigma), obs=observed_data)
+            
+        return model
 ```
-
-**Key Features of SHINE's Scene Modeling API:**
-
-1. **Probabilistic Parameters**: All scene parameters can be drawn from probability distributions rather than fixed values
-2. **Hierarchical Modeling**: Support for multi-level models (e.g., population-level and individual galaxy parameters)
-3. **Full Differentiability**: Uses JAX-GalSim to maintain gradient flow through the entire pipeline
-4. **Flexible Priors**: Easy specification of priors on any parameter (shear, galaxy properties, PSF, noise)
-5. **Plate Notation**: Leverages numpyro's plate notation for efficient vectorized sampling
-6. **Modular Design**: Scene components (galaxies, PSF, noise) are modular and can be customized
-
-
-### 4.3 Inference Modelling Sub-package
-Contains different modules for various inference methods (MCMC, HMC using blackjax).
-
-**Input:** Log probability
-**Output:** Shear posterior
-
-**Example usage:**
-```python
-.inference(logprob, "HMC", "blackjax")
-```
-
-### 4.4 Simulations Input Handler Sub-package
-Reads different simulations for use in creating YAML files for the scene modelling module. Each module reads simulation output and converts units to ensure consistency across simulations.
-
-**Input:** Simulation output
-**Output:** YAML file
-
-### 4.5 Data Handler Sub-package
-Reads real data or simulations used as data. Each module reads survey output and performs unit conversion as needed.
-
-**Input:** Survey output
-**Output:** Image
-
-### 4.6 Evaluation Sub-package
-Performs evaluation including metrics, coverage tests, and comparison with external techniques.
-
-### 4.7 Morphology Sub-package
-Contains parametric and non-parametric morphology generators.
-
-**Input:** YAML file, compatible with GalSim
-**Output:** Galaxy profile
-
-### 4.8 Modelling Utilities Sub-package
-Contains modules for realistic galaxy scene modeling, particularly components not available in GalSim (e.g., WaveDiff PSF for Euclid).
-
-**Input:** YAML file
-
-### 4.9 Workflow Management System (WMS) Module
-Enables job launching on clusters (e.g., SLURM). Supports image segmentation into patches with individual job submission and pipeline status monitoring.
-
-**Input:** YAML file
-**Output:** Shell script
-
-### 4.10 Other Extensions
-Contains possible extensions such as handling SED and photometric redshift information.
-
-## 5. Development
-
-### 5.1 Development & Testing
-
-#### 5.1.1 Development Strategy
-Development begins with a naive pipeline containing simple components, then progresses to ensure robustness across different science cases.
-
-The naive pipeline includes:
-- Scene modelling
-- Inference
-- Simulation output
-- Modelling utilities
-
-
-### 5.2 Style Guide
-- **Code style:** Black Python package
-- **Documentation:** Use docstrings for every function and Sphinx Python package for HTML documentation generation
-
-### 5.3 Environment
-- Use of Docker containers for reproducibility and dependency management
