@@ -24,26 +24,26 @@ SHINE treats shear measurement as a Bayesian inverse problem. Instead of measuri
 ```mermaid
 graph TD
     Config[YAML Configuration] --> Loader[Config Handler]
-    Loader --> Scene[Scene Modelling (NumPyro + JAX-GalSim)]
-    
+    Loader --> Scene[Scene Modelling<br/>NumPyro + JAX-GalSim]
+
     subgraph "Forward Model (JAX)"
-        Priors[Priors (NumPyro)] --> Scene
-        Scene --> Galaxy[Galaxy Generation (Sersic/Morphology)]
+        Priors[Priors<br/>NumPyro] --> Scene
+        Scene --> Galaxy[Galaxy Generation<br/>Sersic/Morphology]
         Scene --> PSF[PSF Modelling]
         Galaxy --> Convolve[Convolution]
         PSF --> Convolve
         Convolve --> Noise[Noise Model]
         Noise --> ModelImage[Simulated Image]
     end
-    
-    Data[Observed Data (Fits/HDF5)] --> Likelihood
+
+    Data[Observed Data<br/>Fits/HDF5] --> Likelihood
     ModelImage --> Likelihood[Likelihood Evaluation]
-    
-    Likelihood --> Inference[Inference Engine (NumPyro/BlackJAX)]
+
+    Likelihood --> Inference[Inference Engine<br/>NumPyro/BlackJAX]
     Inference --> Posterior[Shear Posterior]
-    
+
     subgraph "Workflow Management"
-        WMS[WMS (Slurm/Cluster)] --> Config
+        WMS[WMS<br/>Slurm/Cluster] --> Config
         WMS --> Data
     end
 ```
