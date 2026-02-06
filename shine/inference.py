@@ -14,23 +14,18 @@ logger = logging.getLogger(__name__)
 
 
 class Inference:
-    """
-    Main inference engine supporting multiple inference methods (HMC/MCMC, MAP).
+    """Inference engine supporting HMC/MCMC and optional MAP initialization.
 
-    This class handles both full posterior inference via HMC and MAP estimation.
-    MAP can be used as an initialization step before running MCMC chains.
+    MAP estimation can be used as an initialization step before running
+    MCMC chains to improve convergence.
     """
-
-    model: Callable
-    config: InferenceConfig
 
     def __init__(self, model: Callable, config: InferenceConfig) -> None:
-        """
-        Initialize the inference engine.
+        """Initialize the inference engine.
 
         Args:
-            model: NumPyro model function (the forward generative model)
-            config: Inference configuration
+            model: NumPyro model function (the forward generative model).
+            config: Inference configuration.
         """
         self.model = model
         self.config = config
@@ -42,21 +37,19 @@ class Inference:
         extra_args: Optional[Dict[str, Any]] = None,
         map_config: Optional[MAPConfig] = None,
     ) -> Dict[str, Any]:
-        """
-        Run MAP estimation to find maximum a posteriori parameters.
+        """Run MAP estimation to find maximum a posteriori parameters.
 
         Args:
-            rng_key: JAX random key
-            observed_data: Observed image data
-            extra_args: Extra arguments to pass to the model (e.g., psf)
-            map_config: MAP configuration (if None, uses default)
+            rng_key: JAX random key.
+            observed_data: Observed image data.
+            extra_args: Extra keyword arguments passed to the model (e.g., psf).
+            map_config: MAP configuration (defaults to MAPConfig() if None).
 
         Returns:
-            Dictionary of MAP parameter estimates
+            Dictionary of MAP parameter estimates.
         """
         if extra_args is None:
             extra_args = {}
-
         if map_config is None:
             map_config = MAPConfig()
 
@@ -69,9 +62,7 @@ class Inference:
             rng_key, map_config.num_steps, observed_data=observed_data, **extra_args
         )
 
-        params = svi_result.params
-        map_estimates = guide.median(params)
-
+        map_estimates = guide.median(svi_result.params)
         logger.info("MAP estimation complete.")
         return map_estimates
 
@@ -82,32 +73,30 @@ class Inference:
         extra_args: Optional[Dict[str, Any]] = None,
         init_params: Optional[Dict[str, Any]] = None,
     ) -> az.InferenceData:
-        """
-        Run MCMC inference using NUTS sampler.
+        """Run MCMC inference using the NUTS sampler.
 
         Args:
-            rng_key: JAX random key
-            observed_data: Observed image data
-            extra_args: Extra arguments to pass to the model (e.g., psf)
-            init_params: Optional initial parameters (e.g., from MAP)
+            rng_key: JAX random key.
+            observed_data: Observed image data.
+            extra_args: Extra keyword arguments passed to the model (e.g., psf).
+            init_params: Optional initial parameters (e.g., from MAP estimation).
 
         Returns:
-            ArviZ InferenceData object with posterior samples
+            ArviZ InferenceData object with posterior samples.
         """
         if extra_args is None:
             extra_args = {}
 
-        # Use init_to_uniform for fallback initialization as it works with unbounded distributions
-        # init_to_median can fail for distributions without finite median (e.g., Cauchy, unbounded Normal)
-        # init_to_uniform samples from the prior support, providing robust initialization for NUTS
+        # init_to_uniform is robust for unbounded distributions where init_to_median may fail
+        if init_params is not None:
+            init_strategy = numpyro.infer.init_to_value(values=init_params)
+        else:
+            init_strategy = numpyro.infer.init_to_uniform()
+
         kernel = NUTS(
             self.model,
             dense_mass=self.config.dense_mass,
-            init_strategy=(
-                numpyro.infer.init_to_value(values=init_params)
-                if init_params
-                else numpyro.infer.init_to_uniform()
-            ),
+            init_strategy=init_strategy,
         )
         mcmc = MCMC(
             kernel,
@@ -117,12 +106,12 @@ class Inference:
         )
 
         logger.info(
-            f"Running MCMC inference: {self.config.warmup} warmup, {self.config.samples} samples, {self.config.chains} chains..."
+            f"Running MCMC: {self.config.warmup} warmup, "
+            f"{self.config.samples} samples, {self.config.chains} chain(s)..."
         )
         mcmc.run(rng_key, observed_data=observed_data, **extra_args)
         mcmc.print_summary()
 
-        # Convert to ArviZ InferenceData
         return az.from_numpyro(mcmc)
 
     def run(
@@ -131,31 +120,28 @@ class Inference:
         observed_data: jnp.ndarray,
         extra_args: Optional[Dict[str, Any]] = None,
     ) -> az.InferenceData:
-        """
-        Run full inference pipeline with optional MAP initialization.
+        """Run full inference pipeline with optional MAP initialization.
 
         If MAP initialization is enabled in config, runs MAP first to find
-        good starting points for MCMC chains.
+        good starting points, then runs MCMC.
 
         Args:
-            rng_key: JAX random key
-            observed_data: Observed image data
-            extra_args: Extra arguments to pass to the model (e.g., psf)
+            rng_key: JAX random key.
+            observed_data: Observed image data.
+            extra_args: Extra keyword arguments passed to the model (e.g., psf).
 
         Returns:
-            ArviZ InferenceData object with posterior samples
+            ArviZ InferenceData object with posterior samples.
         """
         init_params = None
 
-        # Run MAP initialization if enabled
-        if self.config.map_init is not None and self.config.map_init.enabled:
-            map_key, mcmc_key = jax.random.split(rng_key)
+        map_init = self.config.map_init
+        if map_init is not None and map_init.enabled:
+            map_key, rng_key = jax.random.split(rng_key)
             init_params = self.run_map(
-                map_key, observed_data, extra_args, self.config.map_init
+                map_key, observed_data, extra_args, map_init
             )
-            rng_key = mcmc_key
         else:
             logger.info("Skipping MAP initialization.")
 
-        # Run MCMC
         return self.run_mcmc(rng_key, observed_data, extra_args, init_params)

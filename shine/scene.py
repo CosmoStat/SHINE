@@ -6,22 +6,26 @@ import jax_galsim as galsim
 import numpyro
 import numpyro.distributions as dist
 
-from shine import galaxy_utils, psf_utils
+from shine import galaxy_utils
 from shine.config import DistributionConfig, ShineConfig
+
+# Default position prior bounds as fraction of image size
+_DEFAULT_POS_MIN_FRAC = 0.3
+_DEFAULT_POS_MAX_FRAC = 0.7
 
 
 class SceneBuilder:
     """Builder for NumPyro probabilistic scene models.
 
-    This class constructs the forward generative model for Bayesian shear inference.
-    It translates configuration parameters into NumPyro priors and builds a
+    Constructs the forward generative model for Bayesian shear inference by
+    translating configuration parameters into NumPyro priors and building a
     differentiable rendering pipeline using JAX-GalSim.
 
     Attributes:
         config: SHINE configuration object containing model specifications.
     """
 
-    def __init__(self, config: ShineConfig):
+    def __init__(self, config: ShineConfig) -> None:
         """Initialize the scene builder.
 
         Args:
@@ -32,11 +36,11 @@ class SceneBuilder:
     def _parse_prior(
         self, name: str, param_config: Union[float, int, DistributionConfig]
     ) -> float:
-        """Create NumPyro distributions from config or return fixed value.
+        """Create a NumPyro sample site from config, or return a fixed value.
 
         Args:
             name: Parameter name for NumPyro sampling.
-            param_config: Either a fixed numeric value or a DistributionConfig object.
+            param_config: Either a fixed numeric value or a DistributionConfig.
 
         Returns:
             Sampled value from the distribution or the fixed value.
@@ -47,31 +51,66 @@ class SceneBuilder:
         if isinstance(param_config, (float, int)):
             return float(param_config)
 
-        if isinstance(param_config, DistributionConfig):
-            if param_config.type == "Normal":
-                return numpyro.sample(
-                    name, dist.Normal(param_config.mean, param_config.sigma)
-                )
-            elif param_config.type == "LogNormal":
-                return numpyro.sample(
-                    name, dist.LogNormal(jnp.log(param_config.mean), param_config.sigma)
-                )
-            elif param_config.type == "Uniform":
-                return numpyro.sample(
-                    name, dist.Uniform(param_config.min, param_config.max)
-                )
-            else:
-                raise ValueError(f"Unknown distribution type: {param_config.type}")
+        if param_config.type == "Normal":
+            return numpyro.sample(
+                name, dist.Normal(param_config.mean, param_config.sigma)
+            )
+        if param_config.type == "LogNormal":
+            return numpyro.sample(
+                name, dist.LogNormal(jnp.log(param_config.mean), param_config.sigma)
+            )
+        if param_config.type == "Uniform":
+            return numpyro.sample(
+                name, dist.Uniform(param_config.min, param_config.max)
+            )
+        raise ValueError(f"Unknown distribution type: '{param_config.type}'")
 
-        return param_config
+    @staticmethod
+    def _resolve_bound(
+        value: Optional[float], image_size: int, default_frac: float
+    ) -> float:
+        """Resolve a single position bound to pixel coordinates.
+
+        Values less than 1 are treated as fractions of the image size.
+        None values fall back to the default fraction.
+
+        Args:
+            value: Position bound (fraction if < 1, pixels if >= 1, or None).
+            image_size: Image dimension in pixels.
+            default_frac: Default fraction of image size when value is None.
+
+        Returns:
+            Position bound in pixel coordinates.
+        """
+        if value is None:
+            return image_size * default_frac
+        if value < 1:
+            return value * image_size
+        return value
+
+    def _resolve_position_bounds(
+        self,
+    ) -> tuple:
+        """Resolve all position bounds from config to pixel coordinates.
+
+        Returns:
+            Tuple of (x_min, x_max, y_min, y_max) in pixel coordinates.
+        """
+        pos_cfg = self.config.gal.position
+        img_cfg = self.config.image
+
+        def _get(attr: str) -> Optional[float]:
+            return getattr(pos_cfg, attr, None) if pos_cfg else None
+
+        x_min = self._resolve_bound(_get("x_min"), img_cfg.size_x, _DEFAULT_POS_MIN_FRAC)
+        x_max = self._resolve_bound(_get("x_max"), img_cfg.size_x, _DEFAULT_POS_MAX_FRAC)
+        y_min = self._resolve_bound(_get("y_min"), img_cfg.size_y, _DEFAULT_POS_MIN_FRAC)
+        y_max = self._resolve_bound(_get("y_max"), img_cfg.size_y, _DEFAULT_POS_MAX_FRAC)
+
+        return x_min, x_max, y_min, y_max
 
     def build_model(self) -> Callable:
         """Build the NumPyro forward generative model for inference.
-
-        Constructs a callable model function that defines:
-        - Prior distributions over latent parameters (shear, galaxy properties)
-        - Differentiable forward rendering using JAX-GalSim
-        - Likelihood function comparing model to observed data
 
         Returns:
             A NumPyro model function that can be passed to MCMC samplers.
@@ -86,93 +125,53 @@ class SceneBuilder:
                 observed_data: Observed image data (used as obs in likelihood).
                 psf: Pre-built JAX-GalSim PSF object to avoid reconstruction overhead.
             """
-            # Define GSParams with configurable FFT size to avoid dynamic shape issues in JAX
             fft_size = self.config.image.fft_size
             gsparams = galsim.GSParams(
                 maximum_fft_size=fft_size, minimum_fft_size=fft_size
             )
+            img_cfg = self.config.image
+            gal_cfg = self.config.gal
 
-            # --- 0. PSF is pre-built and passed directly ---
-            # No need to reconstruct from config on every MCMC iteration
-
-            # --- 1. Global Parameters (Shear) ---
-            g1 = self._parse_prior("g1", self.config.gal.shear.g1)
-            g2 = self._parse_prior("g2", self.config.gal.shear.g2)
+            # 1. Global shear parameters
+            g1 = self._parse_prior("g1", gal_cfg.shear.g1)
+            g2 = self._parse_prior("g2", gal_cfg.shear.g2)
             shear = galsim.Shear(g1=g1, g2=g2)
 
-            # --- 2. Galaxy Population ---
-            n_galaxies = self.config.image.n_objects
-
-            with numpyro.plate("galaxies", n_galaxies):
-                flux = self._parse_prior("flux", self.config.gal.flux)
-                hlr = self._parse_prior("hlr", self.config.gal.half_light_radius)
+            # 2. Galaxy population
+            with numpyro.plate("galaxies", img_cfg.n_objects):
+                flux = self._parse_prior("flux", gal_cfg.flux)
+                hlr = self._parse_prior("hlr", gal_cfg.half_light_radius)
 
                 # Intrinsic ellipticity
                 e1 = 0.0
                 e2 = 0.0
-                if self.config.gal.ellipticity is not None:
-                    e1 = self._parse_prior("e1", self.config.gal.ellipticity.e1)
-                    e2 = self._parse_prior("e2", self.config.gal.ellipticity.e2)
+                if gal_cfg.ellipticity is not None:
+                    e1 = self._parse_prior("e1", gal_cfg.ellipticity.e1)
+                    e2 = self._parse_prior("e2", gal_cfg.ellipticity.e2)
 
-                # Position priors - sample positions from configured distribution
-                if self.config.gal.position is not None:
-                    pos_cfg = self.config.gal.position
-                    # Handle fractional vs pixel coordinates
-                    x_min = pos_cfg.x_min if pos_cfg.x_min is not None else self.config.image.size_x * 0.3
-                    x_max = pos_cfg.x_max if pos_cfg.x_max is not None else self.config.image.size_x * 0.7
-                    y_min = pos_cfg.y_min if pos_cfg.y_min is not None else self.config.image.size_y * 0.3
-                    y_max = pos_cfg.y_max if pos_cfg.y_max is not None else self.config.image.size_y * 0.7
-                    # Convert fractions to pixels if needed
-                    if x_min < 1:
-                        x_min *= self.config.image.size_x
-                    if x_max < 1:
-                        x_max *= self.config.image.size_x
-                    if y_min < 1:
-                        y_min *= self.config.image.size_y
-                    if y_max < 1:
-                        y_max *= self.config.image.size_y
-                else:
-                    # Default: 30%-70% of image
-                    x_min = self.config.image.size_x * 0.3
-                    x_max = self.config.image.size_x * 0.7
-                    y_min = self.config.image.size_y * 0.3
-                    y_max = self.config.image.size_y * 0.7
+                # Position priors
+                x_min, x_max, y_min, y_max = self._resolve_position_bounds()
 
                 x = numpyro.sample("x", dist.Uniform(x_min, x_max))
                 y = numpyro.sample("y", dist.Uniform(y_min, y_max))
 
-            # --- 3. Differentiable Rendering ---
+            # 3. Differentiable rendering
             def render_one_galaxy(
                 flux: float, hlr: float, e1: float, e2: float, x: float, y: float
             ) -> jnp.ndarray:
-                """Render a single galaxy image with JAX-GalSim.
-
-                Args:
-                    flux: Total flux of the galaxy.
-                    hlr: Half-light radius in arcseconds.
-                    e1: First component of intrinsic ellipticity.
-                    e2: Second component of intrinsic ellipticity.
-                    x: X position in pixel coordinates.
-                    y: Y position in pixel coordinates.
-
-                Returns:
-                    Rendered galaxy image as a JAX array.
-                """
-                # Create galaxy using utility function
+                """Render a single galaxy image with JAX-GalSim."""
                 gal = galaxy_utils.get_jax_galaxy(
-                    self.config.gal, flux, hlr, e1, e2, gsparams=gsparams
+                    gal_cfg, flux, hlr, e1, e2, gsparams=gsparams
                 )
-                # Apply shear
                 gal = gal.shear(shear)
-                # Convolve with PSF
                 gal = galsim.Convolve([gal, psf], gsparams=gsparams)
                 return gal.drawImage(
-                    nx=self.config.image.size_x,
-                    ny=self.config.image.size_y,
-                    scale=self.config.image.pixel_scale,
+                    nx=img_cfg.size_x,
+                    ny=img_cfg.size_y,
+                    scale=img_cfg.pixel_scale,
                     offset=(
-                        x - self.config.image.size_x / 2 + 0.5,
-                        y - self.config.image.size_y / 2 + 0.5,
+                        x - img_cfg.size_x / 2 + 0.5,
+                        y - img_cfg.size_y / 2 + 0.5,
                     ),
                 ).array
 
@@ -186,8 +185,8 @@ class SceneBuilder:
             galaxy_images = jax.vmap(render_one_galaxy)(flux, hlr, e1, e2, x, y)
             model_image = jnp.sum(galaxy_images, axis=0)
 
-            # --- 4. Likelihood ---
-            sigma = self.config.image.noise.sigma
+            # 4. Likelihood
+            sigma = img_cfg.noise.sigma
             numpyro.sample("obs", dist.Normal(model_image, sigma), obs=observed_data)
 
         return model
