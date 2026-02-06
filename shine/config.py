@@ -48,18 +48,32 @@ class ShearConfig(BaseModel):
     g1: Union[float, DistributionConfig]
     g2: Union[float, DistributionConfig]
 
+class EllipticityConfig(BaseModel):
+    """Intrinsic ellipticity configuration."""
+    type: str = "E1E2"
+    e1: Union[float, DistributionConfig]
+    e2: Union[float, DistributionConfig]
+
 class GalaxyConfig(BaseModel):
     type: str = "Exponential"  # Changed default from Sersic to Exponential
     n: Optional[Union[float, DistributionConfig]] = None  # Make optional for Exponential
     flux: Union[float, DistributionConfig]
-    half_light_radius: Union[float, DistributionConfig] = Field(..., alias="half_light_radius")
+    half_light_radius: Union[float, DistributionConfig]
+    ellipticity: Optional[EllipticityConfig] = None  # Intrinsic ellipticity
     shear: ShearConfig
+
+class MAPConfig(BaseModel):
+    """Configuration for MAP initialization."""
+    enabled: bool = False
+    num_steps: int = 1000
+    learning_rate: float = 1e-2
 
 class InferenceConfig(BaseModel):
     warmup: int = 500
     samples: int = 1000
     chains: int = 1
     dense_mass: bool = False
+    map_init: Optional[MAPConfig] = None  # Optional MAP initialization
 
 class ShineConfig(BaseModel):
     image: ImageConfig

@@ -21,13 +21,23 @@ gal:
     type: Uniform
     min: 0.3
     max: 0.8
+  ellipticity:
+    type: E1E2
+    e1:
+      type: Normal
+      mean: 0.0
+      sigma: 0.2
+    e2:
+      type: Normal
+      mean: 0.0
+      sigma: 0.2
   shear:
     type: G1G2
-    g1: 
+    g1:
       type: Normal
       mean: 0.05
       sigma: 0.02
-    g2: 
+    g2:
       type: Normal
       mean: -0.05
       sigma: 0.02
@@ -36,3 +46,8 @@ inference:
   warmup: 100
   samples: 100
   chains: 1
+  dense_mass: false
+  map_init:
+    enabled: true
+    num_steps: 500
+    learning_rate: 0.01

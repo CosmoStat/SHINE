@@ -3,12 +3,14 @@ import jax
 from dataclasses import dataclass
 from typing import Optional, Any, Dict
 from shine.config import ShineConfig
+from shine import psf_utils, galaxy_utils
 
 @dataclass
 class Observation:
+    """Container for observational data."""
     image: jnp.ndarray
     noise_map: jnp.ndarray
-    psf_config: Dict[str, Any]  # Store PSF config instead of object
+    psf_config: Dict[str, Any]
     wcs: Any = None
 
 class DataLoader:
@@ -23,13 +25,16 @@ class DataLoader:
 
     @staticmethod
     def generate_synthetic(config: ShineConfig) -> Observation:
+        """
+        Generate synthetic galaxy observations using GalSim.
+
+        This function generates synthetic data for testing purposes.
+        Uses mean values from distribution configs for ground truth parameters.
+        """
         import galsim
-        
-        # 1. Define PSF
-        if config.psf.type == "Gaussian":
-            psf = galsim.Gaussian(sigma=config.psf.sigma)
-        else:
-            raise NotImplementedError(f"PSF type {config.psf.type} not supported for synthetic gen")
+
+        # 1. Define PSF using PSF utilities
+        psf = psf_utils.get_psf(config.psf)
 
         # 2. Define Galaxy (using mean values from config for "truth")
         def get_mean(param):
@@ -45,14 +50,21 @@ class DataLoader:
 
         gal_flux = get_mean(config.gal.flux)
         gal_hlr = get_mean(config.gal.half_light_radius)
-        
+
+        # Intrinsic ellipticity
+        e1 = 0.0
+        e2 = 0.0
+        if config.gal.ellipticity is not None:
+            e1 = get_mean(config.gal.ellipticity.e1)
+            e2 = get_mean(config.gal.ellipticity.e2)
+
         # Shear
         g1 = get_mean(config.gal.shear.g1)
         g2 = get_mean(config.gal.shear.g2)
         shear = galsim.Shear(g1=g1, g2=g2)
 
-        # Create Galaxy Object - Use Exponential (Sersic n=1)
-        gal = galsim.Exponential(half_light_radius=gal_hlr, flux=gal_flux)
+        # Create Galaxy Object using galaxy utilities
+        gal = galaxy_utils.get_galaxy(config.gal, gal_flux, gal_hlr, e1, e2)
         gal = gal.shear(shear)
         
         # Convolve
