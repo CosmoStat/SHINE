@@ -27,6 +27,27 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Astronomy",
 ]
+dependencies = [
+    "jax>=0.4.0",
+    "jaxlib>=0.4.0",
+    "numpyro>=0.13.0",
+    "galsim>=2.5.0",
+    "jax-galsim>=0.3.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "arviz>=0.17.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+dev = [
+    "black>=23.0",
+    "isort>=5.12",
+    "mypy>=1.0",
+]
 
 [tool.setuptools]
 packages = ["shine"]
