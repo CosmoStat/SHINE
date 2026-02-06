@@ -1,10 +1,16 @@
 """PSF modeling utilities."""
+import logging
+from typing import Optional, Any
+
 import galsim
 import jax_galsim
+
 from shine.config import PSFConfig
 
+logger = logging.getLogger(__name__)
 
-def get_psf(psf_config: PSFConfig):
+
+def get_psf(psf_config: PSFConfig) -> galsim.GSObject:
     """
     Create a PSF object based on the PSF configuration.
 
@@ -18,13 +24,17 @@ def get_psf(psf_config: PSFConfig):
         return galsim.Gaussian(sigma=psf_config.sigma)
     elif psf_config.type == "Moffat":
         if psf_config.beta is None:
+            logger.error("Moffat PSF requires beta parameter")
             raise ValueError("Moffat PSF requires beta parameter")
         return galsim.Moffat(beta=psf_config.beta, fwhm=psf_config.sigma)
     else:
+        logger.error(f"PSF type {psf_config.type} not supported")
         raise NotImplementedError(f"PSF type {psf_config.type} not supported")
 
 
-def get_jax_psf(psf_config: PSFConfig, gsparams=None):
+def get_jax_psf(
+    psf_config: PSFConfig, gsparams: Optional[Any] = None
+) -> jax_galsim.GSObject:
     """
     Create a JAX-GalSim PSF object based on the PSF configuration.
 
@@ -39,7 +49,11 @@ def get_jax_psf(psf_config: PSFConfig, gsparams=None):
         return jax_galsim.Gaussian(sigma=psf_config.sigma, gsparams=gsparams)
     elif psf_config.type == "Moffat":
         if psf_config.beta is None:
+            logger.error("Moffat PSF requires beta parameter")
             raise ValueError("Moffat PSF requires beta parameter")
-        return jax_galsim.Moffat(beta=psf_config.beta, fwhm=psf_config.sigma, gsparams=gsparams)
+        return jax_galsim.Moffat(
+            beta=psf_config.beta, fwhm=psf_config.sigma, gsparams=gsparams
+        )
     else:
+        logger.error(f"PSF type {psf_config.type} not supported")
         raise NotImplementedError(f"PSF type {psf_config.type} not supported")

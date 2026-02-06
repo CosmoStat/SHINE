@@ -1,10 +1,22 @@
 """Galaxy morphology modeling utilities."""
+import logging
+from typing import Optional, Any
+
 import galsim
 import jax_galsim
+
 from shine.config import GalaxyConfig
 
+logger = logging.getLogger(__name__)
 
-def get_galaxy(gal_config: GalaxyConfig, flux: float, half_light_radius: float, e1: float = 0.0, e2: float = 0.0):
+
+def get_galaxy(
+    gal_config: GalaxyConfig,
+    flux: float,
+    half_light_radius: float,
+    e1: float = 0.0,
+    e2: float = 0.0,
+) -> galsim.GSObject:
     """
     Create a galaxy object based on the galaxy configuration.
 
@@ -26,7 +38,11 @@ def get_galaxy(gal_config: GalaxyConfig, flux: float, half_light_radius: float, 
         if gal_config.n is None:
             raise ValueError("Sersic galaxy requires n parameter")
         # Handle if n is a distribution config
-        n_value = gal_config.n if isinstance(gal_config.n, (float, int)) else gal_config.n.mean
+        n_value = (
+            gal_config.n
+            if isinstance(gal_config.n, (float, int))
+            else gal_config.n.mean
+        )
         gal = galsim.Sersic(n=n_value, half_light_radius=half_light_radius, flux=flux)
     else:
         raise NotImplementedError(f"Galaxy type {gal_config.type} not supported")
@@ -38,8 +54,14 @@ def get_galaxy(gal_config: GalaxyConfig, flux: float, half_light_radius: float, 
     return gal
 
 
-def get_jax_galaxy(gal_config: GalaxyConfig, flux: float, half_light_radius: float,
-                   e1: float = 0.0, e2: float = 0.0, gsparams=None):
+def get_jax_galaxy(
+    gal_config: GalaxyConfig,
+    flux: float,
+    half_light_radius: float,
+    e1: float = 0.0,
+    e2: float = 0.0,
+    gsparams: Optional[Any] = None,
+) -> jax_galsim.GSObject:
     """
     Create a JAX-GalSim galaxy object based on the galaxy configuration.
 
@@ -55,15 +77,26 @@ def get_jax_galaxy(gal_config: GalaxyConfig, flux: float, half_light_radius: flo
         JAX-GalSim galaxy object
     """
     if gal_config.type == "Exponential":
-        gal = jax_galsim.Exponential(half_light_radius=half_light_radius, flux=flux, gsparams=gsparams)
+        gal = jax_galsim.Exponential(
+            half_light_radius=half_light_radius, flux=flux, gsparams=gsparams
+        )
     elif gal_config.type == "DeVaucouleurs":
-        gal = jax_galsim.DeVaucouleurs(half_light_radius=half_light_radius, flux=flux, gsparams=gsparams)
+        gal = jax_galsim.DeVaucouleurs(
+            half_light_radius=half_light_radius, flux=flux, gsparams=gsparams
+        )
     elif gal_config.type == "Sersic":
         # Note: Sersic not yet available in jax_galsim, use Exponential as fallback
         # TODO: Replace with Sersic when available
-        gal = jax_galsim.Exponential(half_light_radius=half_light_radius, flux=flux, gsparams=gsparams)
+        logger.warning(
+            "Sersic profile not available in JAX-GalSim, falling back to Exponential profile"
+        )
+        gal = jax_galsim.Exponential(
+            half_light_radius=half_light_radius, flux=flux, gsparams=gsparams
+        )
     else:
-        raise NotImplementedError(f"Galaxy type {gal_config.type} not supported in JAX-GalSim")
+        raise NotImplementedError(
+            f"Galaxy type {gal_config.type} not supported in JAX-GalSim"
+        )
 
     # Apply intrinsic ellipticity
     if e1 != 0.0 or e2 != 0.0:
