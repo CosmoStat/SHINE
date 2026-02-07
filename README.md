@@ -7,6 +7,7 @@
 
   [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
   [![JAX](https://img.shields.io/badge/JAX-latest-green.svg)](https://github.com/google/jax)
+  [![Docs](https://img.shields.io/badge/docs-cosmostat.github.io%2FSHINE-7c4dff.svg)](https://cosmostat.github.io/SHINE/)
   [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE) <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
   [![All Contributors](https://img.shields.io/badge/all_contributors-4-orange.svg)](#contributors-)
   <!-- ALL-CONTRIBUTORS-BADGE:END -->
@@ -64,6 +65,15 @@ diagnostics, see `examples/shear_inference.py`:
 ```bash
 python examples/shear_inference.py
 ```
+
+## 📖 Documentation
+
+Full documentation is available at **[cosmostat.github.io/SHINE](https://cosmostat.github.io/SHINE/)**, including:
+
+- [Getting Started](https://cosmostat.github.io/SHINE/getting-started/) — installation and first run
+- [Configuration Reference](https://cosmostat.github.io/SHINE/configuration/) — YAML config specification
+- [Validation Pipeline](https://cosmostat.github.io/SHINE/validation/) — bias measurement infrastructure
+- [API Reference](https://cosmostat.github.io/SHINE/api/config/) — auto-generated from docstrings
 
 ## 🏗️ Status
 
