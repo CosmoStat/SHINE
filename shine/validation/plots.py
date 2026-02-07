@@ -28,14 +28,14 @@ def _is_delta_posterior(data_range: float, center: float) -> bool:
     return data_range < 1e-7
 
 
-def _plot_delta_bar(ax, center: float, color: str, edgecolor: str, alpha: float) -> None:
+def _plot_delta_bar(ax: plt.Axes, center: float, color: str, edgecolor: str, alpha: float) -> None:
     """Plot a single bar for a delta-function posterior."""
     width = max(abs(center) * 1e-4, 1e-10)
     ax.bar(center, 1.0, width=width, alpha=alpha, color=color, edgecolor=edgecolor)
     ax.set_ylabel("(delta)")
 
 
-def _safe_hist(ax, samples: np.ndarray, color: str, edgecolor: str, alpha: float = 0.7) -> None:
+def _safe_hist(ax: plt.Axes, samples: np.ndarray, color: str, edgecolor: str, alpha: float = 0.7) -> None:
     """Plot histogram that handles near-zero-range (delta) posteriors.
 
     For posteriors with negligible range, draws a single bar at the mean
