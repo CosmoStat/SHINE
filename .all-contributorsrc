@@ -26,6 +26,26 @@
         "ideas",
         "projectManagement"
       ]
+    },
+    {
+      "login": "Emmaaycoberry",
+      "name": "Emma Ayçoberry",
+      "avatar_url": "https://avatars.githubusercontent.com/u/80262003?v=4",
+      "profile": "https://github.com/Emmaaycoberry",
+      "contributions": [
+        "ideas",
+        "projectManagement"
+      ]
+    },
+    {
+      "login": "EiffL",
+      "name": "Francois Lanusse",
+      "avatar_url": "https://avatars.githubusercontent.com/u/861591?v=4",
+      "profile": "http://flanusse.net/",
+      "contributions": [
+        "ideas",
+        "projectManagement"
+      ]
     }
   ],
   "contributorsPerLine": 7,
