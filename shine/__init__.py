@@ -1,3 +1,5 @@
+from shine._version import __version__
+
 import warnings
 
 warnings.filterwarnings(
