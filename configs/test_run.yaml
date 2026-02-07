@@ -1,0 +1,61 @@
+image:
+  pixel_scale: 0.2
+  size_x: 32
+  size_y: 32
+  n_objects: 1
+  fft_size: 128  # FFT size for JAX-GalSim rendering (must be power of 2)
+  noise:
+    type: Gaussian
+    sigma: 0.01
+
+psf:
+  type: Gaussian
+  sigma: 0.1
+
+gal:
+  type: Exponential
+  flux:
+    type: LogNormal
+    mean: 100.0
+    sigma: 0.1
+  half_light_radius:
+    type: Uniform
+    min: 0.3
+    max: 0.8
+  ellipticity:
+    type: E1E2
+    e1:
+      type: Normal
+      mean: 0.0
+      sigma: 0.2
+    e2:
+      type: Normal
+      mean: 0.0
+      sigma: 0.2
+  shear:
+    type: G1G2
+    g1:
+      type: Normal
+      mean: 0.05
+      sigma: 0.02
+    g2:
+      type: Normal
+      mean: -0.05
+      sigma: 0.02
+  position:  # Optional: configure position priors
+    type: Uniform
+    x_min: 0.3  # Fraction of image width (< 1) or pixels (>= 1)
+    x_max: 0.7  # Fraction of image width (< 1) or pixels (>= 1)
+    y_min: 0.3  # Fraction of image height (< 1) or pixels (>= 1)
+    y_max: 0.7  # Fraction of image height (< 1) or pixels (>= 1)
+
+inference:
+  warmup: 100
+  samples: 100
+  chains: 1
+  dense_mass: false
+  rng_seed: 0  # RNG seed for reproducibility
+  map_init:
+    enabled: true
+    num_steps: 500
+    learning_rate: 0.01
