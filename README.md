@@ -66,26 +66,13 @@ diagnostics, see `examples/shear_inference.py`:
 python examples/shear_inference.py
 ```
 
-## 🤝 Contributing
-
-We welcome contributions! This project is in early development, and we're excited to collaborate with the community.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## 🏗️ Status
 
 ⚠️ **Early Development**: This project is under active development. APIs may change.
 
----
+## 🤝 Contributing
 
-<div align="center">
-  Developed by <a href="https://www.cosmostat.org/">CosmoStat Lab</a>
-</div>
-## Contributors ✨
-
-Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/docs/en/emoji-key)):
+We welcome contributions! This project is in early development, and we're excited to collaborate with the community. Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/docs/en/emoji-key)):
 
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->
@@ -107,3 +94,9 @@ Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/d
 <!-- ALL-CONTRIBUTORS-LIST:END -->
 
 This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification. Contributions of any kind welcome!
+
+---
+
+<div align="center">
+  Born at <a href="https://www.cosmostat.org/">CosmoStat Lab</a> — join us and help measure the cosmos, one galaxy at a time.
+</div>
