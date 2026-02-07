@@ -1,4 +1,7 @@
 # SHINE: SHear INference Environment
+<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
+[![All Contributors](https://img.shields.io/badge/all_contributors-1-orange.svg?style=flat-square)](#contributors-)
+<!-- ALL-CONTRIBUTORS-BADGE:END -->
 
 <div align="center">
   <img src="assets/logo.png" alt="SHINE Logo" width="1024"/>
@@ -80,3 +83,24 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 <div align="center">
   Developed by <a href="https://www.cosmostat.org/">CosmoStat Lab</a>
 </div>
+## Contributors ✨
+
+Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/docs/en/emoji-key)):
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+<table>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://centofantieze.github.io"><img src="https://avatars.githubusercontent.com/u/42658822?v=4?s=100" width="100px;" alt="Ezequiel Centofanti"/><br /><sub><b>Ezequiel Centofanti</b></sub></a><br /><a href="#ideas-CentofantiEze" title="Ideas, Planning, & Feedback">🤔</a> <a href="#projectManagement-CentofantiEze" title="Project Management">📆</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+
+<!-- ALL-CONTRIBUTORS-LIST:END -->
+
+This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification. Contributions of any kind welcome!
