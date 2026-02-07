@@ -32,7 +32,7 @@ def level0_config(tmp_path):
             "size_y": 48,
             "n_objects": 1,
             "fft_size": 128,
-            "noise": {"type": "Gaussian", "sigma": 0.001},
+            "noise": {"type": "Gaussian", "sigma": 0.1},
         },
         "psf": {"type": "Gaussian", "sigma": 0.1},
         "gal": {

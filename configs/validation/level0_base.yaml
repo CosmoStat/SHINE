@@ -9,7 +9,7 @@ image:
   fft_size: 128
   noise:
     type: Gaussian
-    sigma: 0.001          # Low noise for Level 0 (avoids degenerate posteriors)
+    sigma: 0.1            # Low noise for Level 0 (avoids degenerate posteriors)
 
 psf:
   type: Gaussian
