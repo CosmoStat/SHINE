@@ -93,7 +93,7 @@ Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/d
 <table>
   <tbody>
     <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://centofantieze.github.io"><img src="https://avatars.githubusercontent.com/u/42658822?v=4?s=100" width="100px;" alt="Ezequiel Centofanti"/><br /><sub><b>Ezequiel Centofanti</b></sub></a><br /><a href="#ideas-CentofantiEze" title="Ideas, Planning, & Feedback">🤔</a> <a href="#projectManagement-CentofantiEze" title="Project Management">📆</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://centofantieze.github.io"><img src="https://avatars.githubusercontent.com/u/42658822?v=4?s=100" width="100px;" alt="Ezequiel Centofanti"/><br /><sub><b>Ezequiel Centofanti</b></sub></a><br /><a href="#ideas-CentofantiEze" title="Ideas, Planning, & Feedback">🤔</a> <a href="#projectManagement-CentofantiEze" title="Project Management">📆</a> <a href="https://github.com/CosmoStat/SHINE/pulls?q=is%3Apr+reviewed-by%3ACentofantiEze" title="Reviewed Pull Requests">👀</a></td>
     </tr>
   </tbody>
 </table>
