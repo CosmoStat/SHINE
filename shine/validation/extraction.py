@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import arviz as az
 import numpy as np
@@ -261,3 +261,71 @@ def extract_realization(
         passed_convergence=passed,
         seed=seed,
     )
+
+
+def split_batched_idata(
+    idata: az.InferenceData,
+    n_batch: int,
+    run_ids: List[str],
+) -> List[Tuple[str, az.InferenceData]]:
+    """Split a batched InferenceData into per-realization InferenceData objects.
+
+    The batched posterior has variables with shape (n_chains, n_samples, n_batch).
+    For each batch index i, slice [:, :, i] and create a new InferenceData with
+    the standard (n_chains, n_samples) shape.
+
+    Args:
+        idata: ArviZ InferenceData from a batched MCMC run.
+        n_batch: Number of batch elements.
+        run_ids: List of run identifiers, one per batch element.
+
+    Returns:
+        List of (run_id, InferenceData) tuples, one per batch element.
+
+    Raises:
+        ValueError: If run_ids length doesn't match n_batch.
+    """
+    if len(run_ids) != n_batch:
+        raise ValueError(
+            f"run_ids length ({len(run_ids)}) must match n_batch ({n_batch})"
+        )
+
+    results = []
+    posterior = idata.posterior
+
+    # Identify batched variables (those with a "batch" dimension)
+    batched_vars = [
+        name for name in posterior.data_vars
+        if "batch" in posterior[name].dims
+    ]
+    scalar_vars = [
+        name for name in posterior.data_vars
+        if "batch" not in posterior[name].dims
+    ]
+
+    for i in range(n_batch):
+        # Build per-realization posterior dict
+        post_dict = {}
+        for name in batched_vars:
+            # Shape: (chain, draw, batch) → (chain, draw)
+            values = posterior[name].values
+            post_dict[name] = values[:, :, i]
+
+        for name in scalar_vars:
+            post_dict[name] = posterior[name].values
+
+        # Preserve sample_stats if available
+        stats_dict = None
+        if hasattr(idata, "sample_stats"):
+            stats_dict = {}
+            for name in idata.sample_stats.data_vars:
+                stats_dict[name] = idata.sample_stats[name].values
+
+        single_idata = az.from_dict(
+            posterior=post_dict,
+            sample_stats=stats_dict,
+        )
+        results.append((run_ids[i], single_idata))
+
+    logger.info(f"Split batched InferenceData into {n_batch} per-realization objects")
+    return results

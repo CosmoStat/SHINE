@@ -1,5 +1,5 @@
-# Level 0 base SHINE config — noiseless sanity check
-# Noise sigma is set to near-zero so the posterior should collapse on truth.
+# Level 0 base SHINE config — low-noise sanity check
+# Noise sigma is small so the posterior is tight but not degenerate.
 
 image:
   pixel_scale: 0.1       # arcsec/pixel
@@ -9,7 +9,7 @@ image:
   fft_size: 128
   noise:
     type: Gaussian
-    sigma: 1.0e-8         # Near-zero noise for Level 0
+    sigma: 0.001          # Low noise for Level 0 (avoids degenerate posteriors)
 
 psf:
   type: Gaussian

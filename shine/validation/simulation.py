@@ -2,7 +2,9 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, Tuple
+from typing import Any, Dict, List, Tuple
+
+import jax.numpy as jnp
 
 from shine.config import ShineConfig
 from shine.data import DataLoader, Observation, get_mean
@@ -99,3 +101,78 @@ def generate_paired_observations(
     )
 
     return plus_result, minus_result
+
+
+@dataclass
+class BatchSimulationResult:
+    """Result of batched bias simulation.
+
+    Attributes:
+        images: Stacked observed images, shape (n_batch, nx, ny).
+        psf_model: Shared JAX-GalSim PSF object.
+        ground_truths: List of ground truth dicts, one per realization.
+        run_ids: List of run identifiers.
+    """
+
+    images: jnp.ndarray
+    psf_model: Any
+    ground_truths: List[Dict[str, float]]
+    run_ids: List[str]
+
+
+def generate_batch_observations(
+    config: ShineConfig,
+    shear_pairs: List[Tuple[float, float]],
+    seeds: List[int],
+    run_id_prefix: str = "batch",
+) -> BatchSimulationResult:
+    """Generate N observations and stack them into arrays.
+
+    Args:
+        config: SHINE configuration object.
+        shear_pairs: List of (g1, g2) pairs, one per realization.
+        seeds: List of random seeds, one per realization.
+        run_id_prefix: Prefix for run identifiers.
+
+    Returns:
+        BatchSimulationResult with stacked images and shared PSF.
+
+    Raises:
+        ValueError: If shear_pairs and seeds have different lengths.
+    """
+    if len(shear_pairs) != len(seeds):
+        raise ValueError(
+            f"shear_pairs ({len(shear_pairs)}) and seeds ({len(seeds)}) "
+            f"must have the same length"
+        )
+
+    n_batch = len(shear_pairs)
+    images = []
+    ground_truths = []
+    run_ids = []
+    psf_model = None
+
+    for i, ((g1, g2), seed) in enumerate(zip(shear_pairs, seeds)):
+        run_id = f"{run_id_prefix}_{i:04d}"
+        sim_result = generate_biased_observation(config, g1, g2, seed)
+        images.append(sim_result.observation.image)
+        ground_truths.append(sim_result.ground_truth)
+        run_ids.append(run_id)
+
+        # Use PSF from first observation (shared across batch)
+        if psf_model is None:
+            psf_model = sim_result.observation.psf_model
+
+    stacked_images = jnp.stack(images, axis=0)
+
+    logger.info(
+        f"Generated batch of {n_batch} observations, "
+        f"stacked shape: {stacked_images.shape}"
+    )
+
+    return BatchSimulationResult(
+        images=stacked_images,
+        psf_model=psf_model,
+        ground_truths=ground_truths,
+        run_ids=run_ids,
+    )

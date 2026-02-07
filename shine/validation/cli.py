@@ -23,9 +23,12 @@ from shine.validation.bias_config import (
     BiasRunConfig,
     ConvergenceThresholds,
 )
-from shine.validation.extraction import extract_realization
+from shine.validation.extraction import extract_realization, split_batched_idata
 from shine.validation.plots import plot_level0_diagnostics
-from shine.validation.simulation import generate_biased_observation
+from shine.validation.simulation import (
+    generate_batch_observations,
+    generate_biased_observation,
+)
 from shine.validation.statistics import compute_bias_single_point
 
 logging.basicConfig(
@@ -44,6 +47,8 @@ def run_bias_realization() -> None:
     """CLI entry point: shine-bias-run.
 
     Generates synthetic data with explicit shear, runs MCMC, and saves outputs.
+    Supports batched execution (--batch-size > 1) to pack N independent
+    realizations into a single MCMC run for GPU efficiency.
     """
     parser = argparse.ArgumentParser(
         description="SHINE bias measurement — run a single realization"
@@ -55,8 +60,32 @@ def run_bias_realization() -> None:
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--output-dir", type=str, default=None)
     parser.add_argument("--run-id", type=str, default=None)
+
+    # Batched inference arguments
+    parser.add_argument(
+        "--batch-size", type=int, default=1,
+        help="Number of realizations per GPU job (default: 1)",
+    )
+    parser.add_argument(
+        "--shear-grid", type=float, nargs="+", default=None,
+        help="g1 values for shear grid (e.g., 0.01 0.02 0.05)",
+    )
+    parser.add_argument(
+        "--n-realizations", type=int, default=1,
+        help="Number of realizations per shear grid point",
+    )
+    parser.add_argument(
+        "--base-seed", type=int, default=42,
+        help="Starting seed, incremented per realization",
+    )
     args = parser.parse_args()
 
+    # Batched path: --batch-size > 1
+    if args.batch_size > 1:
+        _run_batched(args)
+        return
+
+    # Original single-realization path
     # Build BiasRunConfig from YAML and/or CLI overrides
     run_config_dict = {}
     if args.config:
@@ -157,6 +186,139 @@ def run_bias_realization() -> None:
     logger.info(f"Convergence diagnostics saved to {conv_path}")
 
     logger.info("Stage 1 (run) complete.")
+
+
+def _run_batched(args: argparse.Namespace) -> None:
+    """Execute the batched inference path.
+
+    Builds a list of (g1, g2, seed, run_id) tuples, generates stacked
+    observations, runs batched MCMC, splits the posterior, and saves
+    per-realization outputs in the same format as the single-realization path.
+
+    Args:
+        args: Parsed CLI arguments (must include batch-size > 1).
+    """
+    if not args.shine_config:
+        logger.error("--shine-config is required")
+        sys.exit(1)
+
+    shine_config = ConfigHandler.load(args.shine_config)
+    output_dir = Path(args.output_dir or "results/validation")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    g2_true = args.g2_true if args.g2_true is not None else 0.0
+
+    # Build the list of (g1, g2, seed, run_id) tuples
+    shear_pairs = []
+    seeds = []
+    run_ids = []
+
+    if args.shear_grid is not None:
+        # Expand shear grid x n_realizations
+        for g1_val in args.shear_grid:
+            for r in range(args.n_realizations):
+                shear_pairs.append((g1_val, g2_true))
+                seeds.append(args.base_seed + len(seeds))
+                run_ids.append(
+                    f"g1_{g1_val:+.4f}_g2_{g2_true:+.4f}_s{args.base_seed + len(run_ids)}"
+                )
+    else:
+        # Single shear point x n_realizations
+        g1_true = args.g1_true if args.g1_true is not None else 0.0
+        for r in range(args.n_realizations):
+            shear_pairs.append((g1_true, g2_true))
+            seeds.append(args.base_seed + r)
+            run_ids.append(
+                f"g1_{g1_true:+.4f}_g2_{g2_true:+.4f}_s{args.base_seed + r}"
+            )
+
+    n_total = len(shear_pairs)
+    if n_total == 0:
+        logger.error("No realizations to run")
+        sys.exit(1)
+
+    # Process in chunks of batch_size
+    batch_size = args.batch_size
+
+    from shine.inference import Inference
+    from shine.scene import SceneBuilder
+    from shine.validation.extraction import extract_convergence_diagnostics
+
+    for batch_start in range(0, n_total, batch_size):
+        batch_end = min(batch_start + batch_size, n_total)
+        batch_shears = shear_pairs[batch_start:batch_end]
+        batch_seeds = seeds[batch_start:batch_end]
+        batch_run_ids = run_ids[batch_start:batch_end]
+        n_batch = len(batch_shears)
+
+        logger.info(
+            f"Processing batch [{batch_start}:{batch_end}] "
+            f"({n_batch} realizations)"
+        )
+
+        # Stage 1a: Generate stacked observations
+        batch_result = generate_batch_observations(
+            shine_config,
+            shear_pairs=batch_shears,
+            seeds=batch_seeds,
+            run_id_prefix="batch",
+        )
+        # Use the run_ids we computed, not the auto-generated ones
+        batch_result.run_ids = batch_run_ids
+
+        # Stage 1b: Build batched model and run inference
+        scene_builder = SceneBuilder(shine_config)
+        model_fn = scene_builder.build_batched_model(n_batch)
+
+        rng_key = jax.random.PRNGKey(shine_config.inference.rng_seed)
+        engine = Inference(model=model_fn, config=shine_config.inference)
+
+        logger.info(f"Running batched MCMC ({n_batch} realizations)...")
+        idata = engine.run(
+            rng_key=rng_key,
+            observed_data=batch_result.images,
+            extra_args={"psf": batch_result.psf_model},
+        )
+
+        # Stage 1c: Split posterior and save per-realization outputs
+        split_results = split_batched_idata(idata, n_batch, batch_run_ids)
+
+        for i, (run_id, single_idata) in enumerate(split_results):
+            run_dir = output_dir / run_id
+            run_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save ground truth (with seed)
+            truth = dict(batch_result.ground_truths[i])
+            truth["seed"] = batch_seeds[i]
+            truth_path = run_dir / "truth.json"
+            with open(truth_path, "w") as f:
+                json.dump(truth, f, indent=2)
+
+            # Save posterior
+            posterior_path = run_dir / "posterior.nc"
+            single_idata.to_netcdf(str(posterior_path))
+
+            # Save convergence summary
+            diagnostics = extract_convergence_diagnostics(single_idata)
+            conv_dict = {
+                "rhat": diagnostics.rhat,
+                "ess": diagnostics.ess,
+                "divergences": diagnostics.divergences,
+                "divergence_frac": diagnostics.divergence_frac,
+                "bfmi": diagnostics.bfmi,
+                "n_samples": diagnostics.n_samples,
+                "n_chains": diagnostics.n_chains,
+            }
+            conv_path = run_dir / "convergence.json"
+            with open(conv_path, "w") as f:
+                json.dump(conv_dict, f, indent=2)
+
+            logger.info(f"Saved realization {run_id} to {run_dir}")
+
+    logger.info(
+        f"Stage 1 (batched run) complete. "
+        f"{n_total} realizations saved to {output_dir}"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -363,7 +525,7 @@ def compute_bias_statistics() -> None:
         # Level 0 defaults: posterior should collapse on truth
         acceptance = AcceptanceCriteria(
             max_offset_sigma=1.0,
-            max_posterior_width=1e-3,
+            max_posterior_width=0.01,
             max_abs_m=0.01,
         )
     else:

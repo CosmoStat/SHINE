@@ -16,10 +16,13 @@ from shine.validation.extraction import (
     extract_convergence_diagnostics,
     extract_realization,
     extract_shear_estimates,
+    split_batched_idata,
 )
 from shine.validation.plots import plot_level0_diagnostics
 from shine.validation.simulation import (
+    BatchSimulationResult,
     SimulationResult,
+    generate_batch_observations,
     generate_biased_observation,
     generate_paired_observations,
 )
@@ -39,7 +42,9 @@ __all__ = [
     "ConvergenceThresholds",
     "ShearGrid",
     # Simulation
+    "BatchSimulationResult",
     "SimulationResult",
+    "generate_batch_observations",
     "generate_biased_observation",
     "generate_paired_observations",
     # Extraction
@@ -50,6 +55,7 @@ __all__ = [
     "extract_convergence_diagnostics",
     "extract_realization",
     "extract_shear_estimates",
+    "split_batched_idata",
     # Statistics
     "BiasResult",
     "CoverageResult",

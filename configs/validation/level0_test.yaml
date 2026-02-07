@@ -1,5 +1,5 @@
 # Level 0 bias test campaign config
-# Noiseless sanity check: posterior should collapse on truth.
+# Low-noise sanity check: posterior should be tight around truth.
 
 level: level_0
 shine_config_path: configs/validation/level0_base.yaml
@@ -18,7 +18,7 @@ convergence:
 
 acceptance:
   max_offset_sigma: 1.0       # Mean within 1-sigma of truth
-  max_posterior_width: 1.0e-3  # Posterior should be very tight
+  max_posterior_width: 0.01    # Posterior should be tight
   max_abs_m: 0.01             # |m| < 1%
   coverage_levels: [0.68, 0.95]
 
