@@ -1,0 +1,27 @@
+{
+  "files": [
+    "README.md"
+  ],
+  "imageSize": 100,
+  "commit": false,
+  "commitType": "docs",
+  "commitConvention": "angular",
+  "contributors": [
+    {
+      "login": "CentofantiEze",
+      "name": "Ezequiel Centofanti",
+      "avatar_url": "https://avatars.githubusercontent.com/u/42658822?v=4",
+      "profile": "https://centofantieze.github.io",
+      "contributions": [
+        "ideas",
+        "projectManagement"
+      ]
+    }
+  ],
+  "contributorsPerLine": 7,
+  "skipCi": true,
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "projectName": "SHINE",
+  "projectOwner": "CosmoStat"
+}
