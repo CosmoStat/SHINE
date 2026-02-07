@@ -5,7 +5,7 @@
 
   **A JAX-powered framework for probabilistic shear estimation in weak gravitational lensing**
 
-  [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
+  [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
   [![JAX](https://img.shields.io/badge/JAX-latest-green.svg)](https://github.com/google/jax)
   [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 </div>
