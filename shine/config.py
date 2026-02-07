@@ -142,7 +142,7 @@ class PSFConfig(BaseModel):
 
     type: str = "Gaussian"
     sigma: float
-    beta: Optional[float] = 2.5
+    beta: Optional[float] = None
 
     @field_validator("sigma")
     @classmethod

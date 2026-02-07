@@ -124,8 +124,8 @@ class TestGetJaxGalaxy:
         gal = get_jax_galaxy(config, flux=1000.0, half_light_radius=1.0)
         assert isinstance(gal, jax_galsim.Exponential)
 
-    def test_devaucouleurs_jax_galaxy(self):
-        """Test creation of JAX-GalSim DeVaucouleurs galaxy."""
+    def test_devaucouleurs_jax_galaxy_not_supported(self):
+        """Test DeVaucouleurs raises NotImplementedError in JAX-GalSim."""
         shear = ShearConfig(type="G1G2", g1=0.01, g2=0.02)
         config = GalaxyConfig(
             type="DeVaucouleurs",
@@ -134,11 +134,11 @@ class TestGetJaxGalaxy:
             shear=shear,
         )
 
-        gal = get_jax_galaxy(config, flux=1000.0, half_light_radius=1.0)
-        assert isinstance(gal, jax_galsim.DeVaucouleurs)
+        with pytest.raises(NotImplementedError, match="not supported in JAX-GalSim"):
+            get_jax_galaxy(config, flux=1000.0, half_light_radius=1.0)
 
-    def test_sersic_jax_galaxy_fallback(self):
-        """Test Sersic galaxy falls back to Exponential in JAX-GalSim."""
+    def test_sersic_jax_galaxy_not_supported(self):
+        """Test Sersic raises NotImplementedError in JAX-GalSim."""
         shear = ShearConfig(type="G1G2", g1=0.01, g2=0.02)
         config = GalaxyConfig(
             type="Sersic",
@@ -148,9 +148,8 @@ class TestGetJaxGalaxy:
             shear=shear,
         )
 
-        # TODO: This currently uses Exponential as fallback
-        gal = get_jax_galaxy(config, flux=1000.0, half_light_radius=1.0)
-        assert isinstance(gal, jax_galsim.Exponential)
+        with pytest.raises(NotImplementedError, match="not supported in JAX-GalSim"):
+            get_jax_galaxy(config, flux=1000.0, half_light_radius=1.0)
 
     def test_jax_galaxy_with_ellipticity(self):
         """Test JAX galaxy creation with intrinsic ellipticity."""
@@ -164,7 +163,7 @@ class TestGetJaxGalaxy:
 
         gal = get_jax_galaxy(config, flux=1000.0, half_light_radius=1.0, e1=0.1, e2=0.2)
         # Galaxy should be transformed
-        assert isinstance(gal, jax_galsim.Transform)
+        assert isinstance(gal, jax_galsim.Transformation)
 
     def test_jax_galaxy_with_gsparams(self):
         """Test JAX galaxy creation with custom GSParams."""

@@ -41,6 +41,8 @@ def _apply_ellipticity(gal: Any, e1: float, e2: float) -> Any:
     Returns:
         Galaxy object with ellipticity applied (or unchanged if both zero).
     """
+    if e1 == 0.0 and e2 == 0.0:
+        return gal
     return gal.shear(e1=e1, e2=e2)
 
 
@@ -75,15 +77,16 @@ def _build_galaxy(
     if gal_config.type == "Exponential":
         gal = lib.Exponential(**common)
     elif gal_config.type == "DeVaucouleurs":
+        if lib is jax_galsim:
+            raise NotImplementedError(
+                "Galaxy type 'DeVaucouleurs' not supported in JAX-GalSim"
+            )
         gal = lib.DeVaucouleurs(**common)
     elif gal_config.type == "Sersic":
         if lib is jax_galsim:
-            # TODO: Replace with jax_galsim.Sersic when available
-            logger.warning(
-                "Sersic profile not available in JAX-GalSim, "
-                "falling back to Exponential profile"
+            raise NotImplementedError(
+                "Galaxy type 'Sersic' not supported in JAX-GalSim"
             )
-            gal = lib.Exponential(**common)
         else:
             n_value = _resolve_sersic_index(gal_config)
             gal = lib.Sersic(n=n_value, **common)
