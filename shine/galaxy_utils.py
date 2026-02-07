@@ -41,9 +41,7 @@ def _apply_ellipticity(gal: Any, e1: float, e2: float) -> Any:
     Returns:
         Galaxy object with ellipticity applied (or unchanged if both zero).
     """
-    if e1 != 0.0 or e2 != 0.0:
-        return gal.shear(e1=e1, e2=e2)
-    return gal
+    return gal.shear(e1=e1, e2=e2)
 
 
 def _build_galaxy(

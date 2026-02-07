@@ -37,14 +37,30 @@ pip install -e .
 
 ## 🚀 Quick Start
 
-```python
-import shine
-import jax.numpy as jnp
+### Run inference from a config file
 
-# Some TBD magic happens
+SHINE is driven by YAML configuration files. Any parameter specified as a
+distribution (e.g. `type: Normal`) becomes a latent variable; everything else
+is fixed. To run the full pipeline (data generation → model building → MCMC):
 
-# Get shear estimates
-g1, g2 = posterior.mean()
+```bash
+python -m shine.main --config configs/test_run.yaml
+```
+
+Results (posterior samples in NetCDF format) are saved to the `results/`
+directory by default. Override with `--output`:
+
+```bash
+python -m shine.main --config configs/test_run.yaml --output my_output/
+```
+
+### Pedagogical example
+
+For a step-by-step walkthrough that builds the config inline and plots
+diagnostics, see `examples/shear_inference.py`:
+
+```bash
+python examples/shear_inference.py
 ```
 
 ## 🤝 Contributing

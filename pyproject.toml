@@ -32,7 +32,7 @@ dependencies = [
     "jaxlib>=0.4.0",
     "numpyro>=0.13.0",
     "galsim>=2.5.0",
-    "jax-galsim @ git+https://github.com/GalSim-developers/JAX-GalSim.git",
+    "jax-galsim @ git+https://github.com/GalSim-developers/JAX-GalSim.git@jax_version",
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
     "arviz>=0.17.0",

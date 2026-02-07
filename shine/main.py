@@ -80,7 +80,7 @@ def main() -> None:
         # 6. Run Bayesian inference
         logger.info("Starting Bayesian inference pipeline...")
         try:
-            rng_key = jax.random.PRNGKey(42)
+            rng_key = jax.random.PRNGKey(config.inference.rng_seed)
             engine = Inference(model=model_fn, config=config.inference)
             results = engine.run(
                 rng_key=rng_key,
