@@ -80,10 +80,10 @@ We welcome contributions! This project is in early development, and we're excite
 <table>
   <tbody>
     <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://centofantieze.github.io"><img src="https://avatars.githubusercontent.com/u/42658822?v=4?s=100" width="100px;" alt="Ezequiel Centofanti"/><br /><sub><b>Ezequiel Centofanti</b></sub></a><br /><a href="#ideas-CentofantiEze" title="Ideas, Planning, & Feedback">🤔</a> <a href="#projectManagement-CentofantiEze" title="Project Management">📆</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="http://sfarrens.github.io"><img src="https://avatars.githubusercontent.com/u/6851839?v=4?s=100" width="100px;" alt="Samuel Farrens"/><br /><sub><b>Samuel Farrens</b></sub></a><br /><a href="#ideas-sfarrens" title="Ideas, Planning, & Feedback">🤔</a> <a href="#projectManagement-sfarrens" title="Project Management">📆</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Emmaaycoberry"><img src="https://avatars.githubusercontent.com/u/80262003?v=4?s=100" width="100px;" alt="Emma Ayçoberry"/><br /><sub><b>Emma Ayçoberry</b></sub></a><br /><a href="#ideas-Emmaaycoberry" title="Ideas, Planning, & Feedback">🤔</a> <a href="#projectManagement-Emmaaycoberry" title="Project Management">📆</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="http://flanusse.net/"><img src="https://avatars.githubusercontent.com/u/861591?v=4?s=100" width="100px;" alt="Francois Lanusse"/><br /><sub><b>Francois Lanusse</b></sub></a><br /><a href="#ideas-EiffL" title="Ideas, Planning, & Feedback">🤔</a> <a href="#projectManagement-EiffL" title="Project Management">📆</a></td>
+      <td align="center" valign="top" width="25%"><a href="https://centofantieze.github.io"><img src="https://avatars.githubusercontent.com/u/42658822?v=4?s=100" width="100px;" alt="Ezequiel Centofanti"/><br /><sub><b>Ezequiel Centofanti</b></sub></a><br /><a href="#ideas-CentofantiEze" title="Ideas, Planning, & Feedback">🤔</a> <a href="#projectManagement-CentofantiEze" title="Project Management">📆</a></td>
+      <td align="center" valign="top" width="25%"><a href="http://sfarrens.github.io"><img src="https://avatars.githubusercontent.com/u/6851839?v=4?s=100" width="100px;" alt="Samuel Farrens"/><br /><sub><b>Samuel Farrens</b></sub></a><br /><a href="#ideas-sfarrens" title="Ideas, Planning, & Feedback">🤔</a> <a href="#projectManagement-sfarrens" title="Project Management">📆</a></td>
+      <td align="center" valign="top" width="25%"><a href="https://github.com/Emmaaycoberry"><img src="https://avatars.githubusercontent.com/u/80262003?v=4?s=100" width="100px;" alt="Emma Ayçoberry"/><br /><sub><b>Emma Ayçoberry</b></sub></a><br /><a href="#ideas-Emmaaycoberry" title="Ideas, Planning, & Feedback">🤔</a> <a href="#projectManagement-Emmaaycoberry" title="Project Management">📆</a></td>
+      <td align="center" valign="top" width="25%"><a href="http://flanusse.net/"><img src="https://avatars.githubusercontent.com/u/861591?v=4?s=100" width="100px;" alt="Francois Lanusse"/><br /><sub><b>Francois Lanusse</b></sub></a><br /><a href="#ideas-EiffL" title="Ideas, Planning, & Feedback">🤔</a> <a href="#projectManagement-EiffL" title="Project Management">📆</a></td>
     </tr>
   </tbody>
 </table>
@@ -98,5 +98,5 @@ This project follows the [all-contributors](https://github.com/all-contributors/
 ---
 
 <div align="center">
-  Born at <a href="https://www.cosmostat.org/">CosmoStat Lab</a> — join us and help measure the cosmos, one galaxy at a time.
+  Born at <a href="https://www.cosmostat.org/">CosmoStat</a>, built with ❤️ for the astro community.
 </div>
