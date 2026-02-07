@@ -16,6 +16,16 @@
         "ideas",
         "projectManagement"
       ]
+    },
+    {
+      "login": "sfarrens",
+      "name": "Samuel Farrens",
+      "avatar_url": "https://avatars.githubusercontent.com/u/6851839?v=4",
+      "profile": "http://sfarrens.github.io",
+      "contributions": [
+        "ideas",
+        "projectManagement"
+      ]
     }
   ],
   "contributorsPerLine": 7,
