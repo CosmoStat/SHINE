@@ -245,6 +245,57 @@ class PositionConfig(BaseModel):
         return self
 
 
+class CatalogConfig(BaseModel):
+    """Configuration for catalog-based scene generation.
+
+    Attributes:
+        type: Catalog type ('cosmodc2', 'catsim', 'openuniverse', 'flagship2').
+        path: Path to catalog file or directory.
+        center_ra: Center Right Ascension in degrees.
+        center_dec: Center Declination in degrees.
+        size_arcmin: Field size in arcminutes (default 1.0).
+        magnitude_limit: Optional magnitude cut (e.g., i < 25).
+        use_bulge_disk: Whether to render bulge+disk separately (default True).
+    """
+
+    type: str
+    path: str
+    center_ra: float
+    center_dec: float
+    size_arcmin: float = 1.0
+    magnitude_limit: Optional[float] = None
+    use_bulge_disk: bool = True
+
+    @field_validator("type")
+    @classmethod
+    def validate_catalog_type(cls, v: str) -> str:
+        """Validate that catalog type is supported."""
+        supported_types = ["cosmodc2", "catsim", "openuniverse", "flagship2"]
+        if v not in supported_types:
+            raise ValueError(
+                f"Unsupported catalog type: {v}. "
+                f"Supported types: {', '.join(supported_types)}"
+            )
+        return v
+
+    @field_validator("size_arcmin")
+    @classmethod
+    def validate_size_positive(cls, v: float) -> float:
+        """Validate that field size is positive."""
+        if v <= 0:
+            raise ValueError(f"Field size must be positive, got {v}")
+        return v
+
+    @field_validator("path")
+    @classmethod
+    def validate_path_exists(cls, v: str) -> str:
+        """Validate that catalog path exists."""
+        path = Path(v)
+        if not path.exists():
+            raise ValueError(f"Catalog path does not exist: {v}")
+        return v
+
+
 class GalaxyConfig(BaseModel):
     """Configuration for galaxy morphology and properties.
 
@@ -350,6 +401,7 @@ class ShineConfig(BaseModel):
         gal: Galaxy morphology and properties configuration.
         inference: Bayesian inference settings (default factory creates default config).
         data_path: Path to observational data file (optional, None for synthetic data).
+        catalog: Catalog configuration for scene generation (optional, mutually exclusive with data_path).
         output_path: Directory path for saving results (default 'results').
     """
 
@@ -358,7 +410,18 @@ class ShineConfig(BaseModel):
     gal: GalaxyConfig
     inference: InferenceConfig = Field(default_factory=InferenceConfig)
     data_path: Optional[str] = None
+    catalog: Optional[CatalogConfig] = None
     output_path: str = "results"
+
+    @model_validator(mode="after")
+    def validate_data_source(self) -> "ShineConfig":
+        """Validate that only one data source is specified."""
+        if self.data_path is not None and self.catalog is not None:
+            raise ValueError(
+                "Cannot specify both 'data_path' and 'catalog'. "
+                "Please use only one data source."
+            )
+        return self
 
 
 class ConfigHandler:

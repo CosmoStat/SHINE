@@ -32,10 +32,14 @@ dependencies = [
     "jaxlib>=0.4.0",
     "numpyro>=0.13.0",
     "galsim>=2.5.0",
-    "jax-galsim @ git+https://github.com/GalSim-developers/JAX-GalSim.git",
+    "jax-galsim @ git+https://github.com/GalSim-developers/JAX-GalSim.git@jax_version",
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
     "arviz>=0.17.0",
+    "pandas>=1.5.0",
+    "astropy>=5.0.0",
+    "h5py>=3.0.0",
+    "healpy>=1.16.0",
 ]
 
 [project.optional-dependencies]
@@ -47,6 +51,9 @@ dev = [
     "black>=23.0",
     "isort>=5.12",
     "mypy>=1.0",
+]
+examples = [
+    "matplotlib>=3.5.0",
 ]
 
 [tool.setuptools]

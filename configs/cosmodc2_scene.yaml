@@ -1,0 +1,46 @@
+# Example configuration for CosmoDC2 catalog-based scene generation
+# This config generates a 1 arcmin × 1 arcmin LSST-like scene using pre-extracted CosmoDC2 data
+
+image:
+  pixel_scale: 0.2      # LSST pixel scale (arcsec/pixel)
+  size_x: 300           # 1 arcmin = 60 arcsec / 0.2 = 300 pixels
+  size_y: 300
+  n_objects: 50         # Expected ~50 galaxies per arcmin² at i < 25
+  noise:
+    type: Gaussian
+    sigma: 0.005        # Sky background noise level
+  fft_size: 256         # Power of 2 for FFT convolution
+
+psf:
+  type: Gaussian
+  sigma: 0.7            # LSST PSF FWHM ~ 0.7" (σ for Gaussian approximation)
+
+gal:
+  type: Exponential     # Fallback profile (CosmoDC2 provides morphology)
+  flux:
+    type: LogNormal     # Fallback if catalog flux unavailable
+    mean: 1000.0
+    sigma: 500.0
+  half_light_radius:
+    type: LogNormal
+    mean: 1.0
+    sigma: 0.3
+  shear:
+    type: G1G2
+    g1: 0.02            # Global shear to apply to all galaxies
+    g2: -0.01
+
+catalog:
+  type: cosmodc2
+  path: /path/to/cosmodc2_test_sample_12arcmin.fits  # User must update this path
+  center_ra: 53.0       # Center within extracted region
+  center_dec: -28.0
+  size_arcmin: 1.0      # Generate 1 arcmin field
+  magnitude_limit: 25.0 # i-band magnitude cut
+  use_bulge_disk: false # CosmoDC2 provides single-component morphology
+
+inference:
+  warmup: 500
+  samples: 1000
+  chains: 1
+  rng_seed: 42
