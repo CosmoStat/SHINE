@@ -1,0 +1,94 @@
+site_name: SHINE
+site_description: A JAX-powered framework for probabilistic shear estimation in weak gravitational lensing
+site_url: https://cosmostat.github.io/SHINE
+repo_url: https://github.com/CosmoStat/SHINE
+repo_name: CosmoStat/SHINE
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Configuration: configuration.md
+  - Architecture: architecture.md
+  - Validation:
+    - Overview: validation/index.md
+    - Level 0 Walkthrough: validation/level0.md
+    - GPU-Batched Inference: validation/batched.md
+  - API Reference:
+    - shine.config: api/config.md
+    - shine.scene: api/scene.md
+    - shine.inference: api/inference.md
+    - shine.data: api/data.md
+    - shine.galaxy_utils: api/galaxy_utils.md
+    - shine.psf_utils: api/psf_utils.md
+    - Validation:
+      - shine.validation: api/validation/index.md
+      - shine.validation.simulation: api/validation/simulation.md
+      - shine.validation.extraction: api/validation/extraction.md
+      - shine.validation.statistics: api/validation/statistics.md
+      - shine.validation.bias_config: api/validation/bias_config.md
+      - shine.validation.cli: api/validation/cli.md
+      - shine.validation.plots: api/validation/plots.md
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - toc.follow
+    - search.suggest
+    - search.highlight
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            members_order: source
+            merge_init_into_class: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.arithmatex:
+      generic: true
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
+
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js

@@ -46,6 +46,10 @@ dev = [
     "isort>=5.12",
     "mypy>=1.0",
 ]
+docs = [
+    "mkdocs-material>=9.0",
+    "mkdocstrings[python]>=0.24",
+]
 
 [project.scripts]
 shine-bias-run = "shine.validation.cli:run_bias_realization"
