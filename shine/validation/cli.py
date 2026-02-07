@@ -21,7 +21,6 @@ from shine.validation.bias_config import (
     AcceptanceCriteria,
     BiasLevel,
     BiasRunConfig,
-    BiasTestConfig,
     ConvergenceThresholds,
 )
 from shine.validation.extraction import extract_realization
@@ -273,6 +272,66 @@ def extract_bias_results() -> None:
 # --------------------------------------------------------------------------- #
 
 
+def _check_offset(
+    run_id: str,
+    comp: str,
+    true_val: float,
+    mean: float,
+    std: float,
+    level: BiasLevel,
+    acceptance: AcceptanceCriteria,
+) -> bool:
+    """Check whether the posterior offset from truth is acceptable.
+
+    For Level 0 with collapsed posteriors (std below max_posterior_width),
+    uses absolute offset instead of sigma-based offset, since the latter
+    is meaningless for delta-like posteriors.
+
+    Args:
+        run_id: Realization identifier for logging.
+        comp: Shear component name ("g1" or "g2").
+        true_val: True shear value.
+        mean: Posterior mean.
+        std: Posterior standard deviation.
+        level: Bias testing level.
+        acceptance: Acceptance criteria.
+
+    Returns:
+        True if the offset passes acceptance criteria, False otherwise.
+    """
+    abs_offset = abs(mean - true_val)
+
+    is_collapsed_level0 = (
+        level == BiasLevel.level_0
+        and acceptance.max_posterior_width is not None
+        and std < acceptance.max_posterior_width
+    )
+
+    if is_collapsed_level0:
+        if abs_offset > acceptance.max_posterior_width:
+            logger.warning(
+                f"{run_id}: {comp} absolute offset = "
+                f"{abs_offset:.2e} exceeds {acceptance.max_posterior_width}"
+            )
+            return False
+        logger.info(
+            f"{run_id}: {comp} offset = {abs_offset:.2e} "
+            f"(posterior width = {std:.2e}, collapsed on truth)"
+        )
+        return True
+
+    if std > 0:
+        offset_sigma = abs_offset / std
+        if offset_sigma > acceptance.max_offset_sigma:
+            logger.warning(
+                f"{run_id}: {comp} offset = {offset_sigma:.2f}σ "
+                f"exceeds {acceptance.max_offset_sigma}σ"
+            )
+            return False
+
+    return True
+
+
 def compute_bias_statistics() -> None:
     """CLI entry point: shine-bias-stats.
 
@@ -285,7 +344,7 @@ def compute_bias_statistics() -> None:
     parser.add_argument("--output-dir", type=str, required=True)
     parser.add_argument(
         "--level", type=str, default="level_0",
-        choices=[l.value for l in BiasLevel],
+        choices=[lvl.value for lvl in BiasLevel],
     )
     parser.add_argument("--posterior-dir", type=str, default=None)
     parser.add_argument("--acceptance-config", type=str, default=None)
@@ -359,40 +418,15 @@ def compute_bias_statistics() -> None:
                     all_passed = False
 
         # Check offset from truth
-        # For Level 0, use absolute offset when posterior width is below
-        # acceptance threshold (offset-in-sigma is meaningless for delta posteriors)
         if acceptance.max_offset_sigma is not None:
-            for comp, true, mean, std in [
+            for comp, true_val, mean, std in [
                 ("g1", g1_true, g1_mean, g1_std),
                 ("g2", g2_true, g2_mean, g2_std),
             ]:
-                abs_offset = abs(mean - true)
-                if (
-                    level == BiasLevel.level_0
-                    and acceptance.max_posterior_width is not None
-                    and std < acceptance.max_posterior_width
+                if not _check_offset(
+                    row["run_id"], comp, true_val, mean, std, level, acceptance
                 ):
-                    # Level 0: posterior collapsed — check absolute offset
-                    # instead of sigma-based offset
-                    if abs_offset > acceptance.max_posterior_width:
-                        logger.warning(
-                            f"{row['run_id']}: {comp} absolute offset = "
-                            f"{abs_offset:.2e} exceeds {acceptance.max_posterior_width}"
-                        )
-                        all_passed = False
-                    else:
-                        logger.info(
-                            f"{row['run_id']}: {comp} offset = {abs_offset:.2e} "
-                            f"(posterior width = {std:.2e}, collapsed on truth)"
-                        )
-                elif std > 0:
-                    offset_sigma = abs_offset / std
-                    if offset_sigma > acceptance.max_offset_sigma:
-                        logger.warning(
-                            f"{row['run_id']}: {comp} offset = {offset_sigma:.2f}σ "
-                            f"exceeds {acceptance.max_offset_sigma}σ"
-                        )
-                        all_passed = False
+                    all_passed = False
 
         # Compute m, c for non-zero shear
         if level == BiasLevel.level_0:

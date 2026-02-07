@@ -11,6 +11,58 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _is_delta_posterior(data_range: float, center: float) -> bool:
+    """Check if a posterior has negligible range (effectively a delta function).
+
+    Args:
+        data_range: Peak-to-peak range of the samples.
+        center: Mean of the samples.
+
+    Returns:
+        True if the posterior should be treated as a delta function.
+    """
+    if data_range == 0 or not np.isfinite(data_range):
+        return True
+    if data_range < abs(center) * 1e-8:
+        return True
+    return data_range < 1e-7
+
+
+def _plot_delta_bar(ax, center: float, color: str, edgecolor: str, alpha: float) -> None:
+    """Plot a single bar for a delta-function posterior."""
+    width = max(abs(center) * 1e-4, 1e-10)
+    ax.bar(center, 1.0, width=width, alpha=alpha, color=color, edgecolor=edgecolor)
+    ax.set_ylabel("(delta)")
+
+
+def _safe_hist(ax, samples: np.ndarray, color: str, edgecolor: str, alpha: float = 0.7) -> None:
+    """Plot histogram that handles near-zero-range (delta) posteriors.
+
+    For posteriors with negligible range, draws a single bar at the mean
+    instead of attempting a histogram that would fail or be misleading.
+
+    Args:
+        ax: Matplotlib axes to plot on.
+        samples: Posterior samples to histogram.
+        color: Fill color for the histogram.
+        edgecolor: Edge color for histogram bars.
+        alpha: Transparency level.
+    """
+    data_range = float(np.ptp(samples))
+    center = float(np.mean(samples))
+
+    if _is_delta_posterior(data_range, center):
+        _plot_delta_bar(ax, center, color, edgecolor, alpha)
+        return
+
+    n_bins = max(1, min(50, int(len(samples) ** 0.5)))
+    try:
+        ax.hist(samples, bins=n_bins, density=True,
+                alpha=alpha, color=color, edgecolor=edgecolor)
+    except (ValueError, FloatingPointError):
+        _plot_delta_bar(ax, center, color, edgecolor, alpha)
+
+
 def plot_level0_diagnostics(
     idata: az.InferenceData,
     g1_true: float,
@@ -41,32 +93,6 @@ def plot_level0_diagnostics(
     g2_chains = idata.posterior.g2.values
     g1_samples = g1_chains.flatten()
     g2_samples = g2_chains.flatten()
-
-    def _safe_hist(ax, samples, color, edgecolor, alpha=0.7):
-        """Plot histogram that handles near-zero-range (delta) posteriors."""
-        data_range = float(np.ptp(samples))
-        center = float(np.mean(samples))
-        # If range is negligible relative to center value, treat as delta
-        if (
-            data_range == 0
-            or not np.isfinite(data_range)
-            or data_range < abs(center) * 1e-8
-            or data_range < 1e-7
-        ):
-            width = max(abs(center) * 1e-4, 1e-10)
-            ax.bar(center, 1.0, width=width,
-                   alpha=alpha, color=color, edgecolor=edgecolor)
-            ax.set_ylabel("(delta)")
-            return
-        n_bins = max(1, min(50, int(len(samples) ** 0.5)))
-        try:
-            ax.hist(samples, bins=n_bins, density=True,
-                    alpha=alpha, color=color, edgecolor=edgecolor)
-        except (ValueError, FloatingPointError):
-            # Last resort: just show a bar at the mean
-            width = max(abs(center) * 1e-4, 1e-10)
-            ax.bar(center, 1.0, width=width,
-                   alpha=alpha, color=color, edgecolor=edgecolor)
 
     # --- Trace plots + marginal posteriors ---
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))

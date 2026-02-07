@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Dict, Tuple
 
 from shine.config import ShineConfig
 from shine.data import DataLoader, Observation, get_mean

@@ -88,9 +88,8 @@ def _build_galaxy(
             raise NotImplementedError(
                 "Galaxy type 'Sersic' not supported in JAX-GalSim"
             )
-        else:
-            n_value = _resolve_sersic_index(gal_config)
-            gal = lib.Sersic(n=n_value, **common)
+        n_value = _resolve_sersic_index(gal_config)
+        gal = lib.Sersic(n=n_value, **common)
     else:
         lib_name = "JAX-GalSim" if lib is jax_galsim else "GalSim"
         raise NotImplementedError(

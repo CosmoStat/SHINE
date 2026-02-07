@@ -1,8 +1,7 @@
 """Pydantic configuration models for bias testing."""
 
 from enum import Enum
-from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 

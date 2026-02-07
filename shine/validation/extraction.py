@@ -1,7 +1,7 @@
 """Extract structured results from ArviZ InferenceData."""
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 import arviz as az
@@ -116,7 +116,8 @@ def extract_convergence_diagnostics(
     try:
         bfmi_values = az.bfmi(idata)
         bfmi = [float(v) for v in bfmi_values]
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"Could not compute BFMI: {exc}")
         bfmi = []
 
     # Chain/sample counts
@@ -153,7 +154,10 @@ def extract_shear_estimates(
 
     percentile_levels = [2.5, 16.0, 50.0, 84.0, 97.5]
     percentile_values = np.percentile(samples, percentile_levels)
-    percentiles = dict(zip(percentile_levels, [float(v) for v in percentile_values]))
+    percentiles = {
+        level: float(value)
+        for level, value in zip(percentile_levels, percentile_values)
+    }
 
     return ShearEstimates(
         mean=float(np.mean(samples)),
