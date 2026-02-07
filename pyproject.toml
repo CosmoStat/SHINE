@@ -29,10 +29,11 @@ dependencies = [
     "jax>=0.4.0",
     "numpyro>=0.13.0",
     "galsim>=2.5.0",
-    "jax-galsim @ git+https://github.com/GalSim-developers/JAX-GalSim.git@jax_version",
+    "jax-galsim @ git+https://github.com/GalSim-developers/JAX-GalSim.git",
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
     "arviz>=0.17.0",
+    "matplotlib>=3.7.0",
 ]
 
 [project.optional-dependencies]
@@ -46,8 +47,13 @@ dev = [
     "mypy>=1.0",
 ]
 
+[project.scripts]
+shine-bias-run = "shine.validation.cli:run_bias_realization"
+shine-bias-extract = "shine.validation.cli:extract_bias_results"
+shine-bias-stats = "shine.validation.cli:compute_bias_statistics"
+
 [tool.setuptools]
-packages = ["shine"]
+packages = ["shine", "shine.validation"]
 
 [tool.setuptools_scm]
 write_to = "shine/_version.py"

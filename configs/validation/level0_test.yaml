@@ -1,0 +1,25 @@
+# Level 0 bias test campaign config
+# Noiseless sanity check: posterior should collapse on truth.
+
+level: level_0
+shine_config_path: configs/validation/level0_base.yaml
+
+shear_grid:
+  values: [0.02]
+
+n_realizations: 1
+paired: false
+
+convergence:
+  rhat_max: 1.05
+  ess_min: 100
+  divergence_frac_max: 0.0   # Zero divergences for Level 0
+  bfmi_min: 0.3
+
+acceptance:
+  max_offset_sigma: 1.0       # Mean within 1-sigma of truth
+  max_posterior_width: 1.0e-3  # Posterior should be very tight
+  max_abs_m: 0.01             # |m| < 1%
+  coverage_levels: [0.68, 0.95]
+
+output_dir: results/validation/level0

@@ -1,0 +1,48 @@
+# Level 0 base SHINE config — noiseless sanity check
+# Noise sigma is set to near-zero so the posterior should collapse on truth.
+
+image:
+  pixel_scale: 0.1       # arcsec/pixel
+  size_x: 48
+  size_y: 48
+  n_objects: 1
+  fft_size: 128
+  noise:
+    type: Gaussian
+    sigma: 1.0e-8         # Near-zero noise for Level 0
+
+psf:
+  type: Gaussian
+  sigma: 0.1              # arcsec
+
+gal:
+  type: Exponential
+  flux: 1000.0
+  half_light_radius: 0.5  # arcsec
+  shear:
+    type: G1G2
+    g1:
+      type: Normal
+      mean: 0.02
+      sigma: 0.05
+    g2:
+      type: Normal
+      mean: -0.01
+      sigma: 0.05
+  position:
+    type: Uniform
+    x_min: 23.5
+    x_max: 24.5
+    y_min: 23.5
+    y_max: 24.5
+
+inference:
+  warmup: 500
+  samples: 1000
+  chains: 2
+  dense_mass: false
+  rng_seed: 42
+  map_init:
+    enabled: true
+    num_steps: 1000
+    learning_rate: 0.01

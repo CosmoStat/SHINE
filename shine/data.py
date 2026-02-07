@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 import jax.numpy as jnp
 
@@ -112,7 +112,12 @@ class DataLoader:
         return DataLoader.generate_synthetic(config)
 
     @staticmethod
-    def generate_synthetic(config: ShineConfig) -> Observation:
+    def generate_synthetic(
+        config: ShineConfig,
+        g1_true: Optional[float] = None,
+        g2_true: Optional[float] = None,
+        noise_seed: Optional[int] = None,
+    ) -> Observation:
         """Generate synthetic galaxy observations using GalSim.
 
         Uses mean values from distribution configs for ground truth parameters,
@@ -122,6 +127,9 @@ class DataLoader:
 
         Args:
             config: SHINE configuration object containing simulation parameters.
+            g1_true: If provided, overrides the g1 shear from config.
+            g2_true: If provided, overrides the g2 shear from config.
+            noise_seed: If provided, overrides config.inference.rng_seed for noise RNG.
 
         Returns:
             Observation object with synthetic noisy image, noise map, and JAX-GalSim PSF.
@@ -156,9 +164,9 @@ class DataLoader:
             e_mag = (e1**2 + e2**2) ** 0.5
             _validate_magnitude(e_mag, 1.0, "Ellipticity", f"(e1={e1}, e2={e2})")
 
-        # Shear
-        g1 = get_mean(config.gal.shear.g1)
-        g2 = get_mean(config.gal.shear.g2)
+        # Shear — use overrides if provided, otherwise extract from config
+        g1 = g1_true if g1_true is not None else get_mean(config.gal.shear.g1)
+        g2 = g2_true if g2_true is not None else get_mean(config.gal.shear.g2)
         g_mag = (g1**2 + g2**2) ** 0.5
         _validate_magnitude(g_mag, 1.0, "Shear", f"(g1={g1}, g2={g2})")
         shear = galsim.Shear(g1=g1, g2=g2)
@@ -175,9 +183,10 @@ class DataLoader:
             scale=config.image.pixel_scale,
         ).array
 
-        # Add noise
+        # Add noise — use override seed if provided
         noise_sigma = config.image.noise.sigma
-        rng = galsim.BaseDeviate(config.inference.rng_seed)
+        seed = noise_seed if noise_seed is not None else config.inference.rng_seed
+        rng = galsim.BaseDeviate(seed)
         gs_image = galsim.Image(image)
         gs_image.addNoise(galsim.GaussianNoise(rng, sigma=noise_sigma))
         noisy_image = gs_image.array
