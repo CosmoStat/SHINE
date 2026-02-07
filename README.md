@@ -1,7 +1,4 @@
 # SHINE: SHear INference Environment
-<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
-[![All Contributors](https://img.shields.io/badge/all_contributors-4-orange.svg?style=flat-square)](#contributors-)
-<!-- ALL-CONTRIBUTORS-BADGE:END -->
 
 <div align="center">
   <img src="assets/logo.png" alt="SHINE Logo" width="1024"/>
@@ -10,7 +7,9 @@
 
   [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
   [![JAX](https://img.shields.io/badge/JAX-latest-green.svg)](https://github.com/google/jax)
-  [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
+  [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE) <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
+  [![All Contributors](https://img.shields.io/badge/all_contributors-4-orange.svg)](#contributors-)
+  <!-- ALL-CONTRIBUTORS-BADGE:END -->
 </div>
 
 ---
