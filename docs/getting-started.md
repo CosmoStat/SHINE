@@ -70,15 +70,17 @@ gal:
       sigma: 0.05
 
 inference:
-  warmup: 200
-  samples: 500
-  chains: 1
-  dense_mass: false
+  method: nuts                # "nuts", "map", or "vi"
+  nuts_config:
+    warmup: 200
+    samples: 500
+    chains: 1
+    dense_mass: false
+    map_init:
+      enabled: true
+      num_steps: 500
+      learning_rate: 0.01
   rng_seed: 42
-  map_init:
-    enabled: true
-    num_steps: 500
-    learning_rate: 0.01
 ```
 
 Here, `flux` and `half_light_radius` are fixed values. The shear components
@@ -95,7 +97,7 @@ This will:
 
 1. Generate synthetic data from the config (since no `data_path` is specified)
 2. Build the NumPyro probabilistic model
-3. Run MAP initialization followed by NUTS MCMC
+3. Run inference using the configured method (NUTS with MAP init in this example)
 4. Save the posterior as `results/posterior.nc` (ArviZ NetCDF format)
 
 Override the output directory with `--output`:

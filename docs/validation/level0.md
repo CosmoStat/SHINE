@@ -1,8 +1,9 @@
 # Level 0 Walkthrough
 
 Level 0 is a noiseless sanity check: a single galaxy with fixed morphology,
-very low noise, and a known shear. The posterior should collapse tightly
-around the true shear values.
+very low noise, and a known shear. Since there is effectively no noise, MAP
+estimation is sufficient -- the point estimate should land directly on the
+true shear values.
 
 ## Prerequisites
 
@@ -12,7 +13,9 @@ pip install -e .
 
 ## Step 1: Run a single realization
 
-Use `shine-bias-run` to generate data with a known shear and run MCMC:
+Use `shine-bias-run` to generate data with a known shear and run MAP inference.
+The default Level 0 config (`configs/validation/level0_base.yaml`) uses
+`method: map`:
 
 ```bash
 shine-bias-run \
@@ -28,9 +31,9 @@ This produces:
 
 ```
 results/validation/level0/r0001/
-├── posterior.nc       # ArviZ InferenceData
+├── posterior.nc       # ArviZ InferenceData (MAP point estimate)
 ├── truth.json         # {"g1": 0.02, "g2": -0.01}
-└── convergence.json   # R-hat, ESS, divergences
+└── convergence.json   # Convergence diagnostics (sentinels for MAP)
 ```
 
 ## Step 2: Extract results
@@ -61,7 +64,7 @@ shine-bias-stats \
 This produces:
 
 - `stats/bias_results.json` -- bias values and overall pass/fail
-- `stats/plots/` -- diagnostic plots (trace, marginals, pair plot)
+- `stats/plots/` -- diagnostic plots (MAP estimate vs truth)
 
 ## Acceptance Criteria
 
@@ -69,8 +72,8 @@ Level 0 checks three conditions:
 
 | Criterion | Threshold | Meaning |
 |-----------|-----------|---------|
-| Posterior width | $\sigma < 0.01$ | Posterior should be tight |
-| Offset from truth | $< 1\sigma$ | Mean should be near truth |
+| Posterior width | $\sigma < 0.01$ | Posterior should be tight (0 for MAP) |
+| Offset from truth | $< 1\sigma$ | Estimate should be near truth |
 | Multiplicative bias | $\|m\| < 0.01$ | Less than 1% bias |
 
 ## Inspecting Results
@@ -82,14 +85,12 @@ import arviz as az
 
 idata = az.from_netcdf("results/validation/level0/r0001/posterior.nc")
 
-# Summary table
-print(az.summary(idata, var_names=["g1", "g2"]))
+# Check the inference method
+print(idata.posterior.attrs.get("inference_method"))  # "map"
 
-# Trace plot
-az.plot_trace(idata, var_names=["g1", "g2"])
-
-# Pair plot
-az.plot_pair(idata, var_names=["g1", "g2"], kind="kde")
+# Point estimates
+print(f"g1 = {float(idata.posterior.g1.values.flatten()[0]):.6f}")
+print(f"g2 = {float(idata.posterior.g2.values.flatten()[0]):.6f}")
 ```
 
 ## Running Multiple Realizations

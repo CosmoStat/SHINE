@@ -1,8 +1,9 @@
 # shine.inference
 
-Bayesian inference engine with optional MAP initialization.
+Bayesian inference engine supporting NUTS/MCMC, MAP, and Variational Inference.
 
-Wraps NumPyro's NUTS sampler with support for MAP pre-initialization
-using Adam optimization to improve MCMC convergence.
+Dispatches on `InferenceConfig.method` to run one of three inference paths.
+All methods return ArviZ `InferenceData` so the downstream pipeline works
+uniformly.
 
 ::: shine.inference
