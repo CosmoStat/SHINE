@@ -379,6 +379,8 @@ def split_batched_idata(
             posterior=post_dict,
             sample_stats=stats_dict,
         )
+        # Preserve posterior attributes (e.g., inference_method)
+        single_idata.posterior.attrs.update(posterior.attrs)
         results.append((run_ids[i], single_idata))
 
     logger.info(f"Split batched InferenceData into {n_batch} per-realization objects")
