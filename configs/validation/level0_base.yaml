@@ -46,6 +46,6 @@ gal:
 inference:
   method: map               # MAP is sufficient for noiseless Level 0
   map_config:
-    num_steps: 1000
-    learning_rate: 0.01
+    num_steps: 3000
+    learning_rate: 0.005
   rng_seed: 42
