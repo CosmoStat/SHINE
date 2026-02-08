@@ -11,8 +11,14 @@ requires-python = ">=3.11"
 authors = [
     {name = "Emma Ayçoberry", email = "emma.aycoberry@cea.fr"},
     {name = "Ezequiel Centofanti", email = "ezequiel.centofanti@cea.fr"},
-    {name = "Sam Farrens", email ="sam.farrens@cea.fr"},
-    {name = "Francois Lanusse", email = "francois.lanusse@cnrs.fr"}
+    {name = "Sam Farrens", email = "sam.farrens@cea.fr"},
+    {name = "Francois Lanusse", email = "francois.lanusse@cnrs.fr"},
+]
+maintainers = [
+    {name = "Emma Ayçoberry", email = "emma.aycoberry@cea.fr"},
+    {name = "Ezequiel Centofanti", email = "ezequiel.centofanti@cea.fr"},
+    {name = "Sam Farrens", email = "sam.farrens@cea.fr"},
+    {name = "Francois Lanusse", email = "francois.lanusse@cnrs.fr"},
 ]
 license = "MIT"
 keywords = ["cosmology", "weak-lensing", "shear", "jax", "astronomy"]
@@ -55,6 +61,12 @@ docs = [
 shine-bias-run = "shine.validation.cli:run_bias_realization"
 shine-bias-extract = "shine.validation.cli:extract_bias_results"
 shine-bias-stats = "shine.validation.cli:compute_bias_statistics"
+
+[project.urls]
+Homepage = "https://github.com/CosmoStat/SHINE"
+Documentation = "https://cosmostat.github.io/SHINE/"
+Repository = "https://github.com/CosmoStat/SHINE"
+Issues = "https://github.com/CosmoStat/SHINE/issues"
 
 [tool.setuptools]
 packages = ["shine", "shine.validation"]

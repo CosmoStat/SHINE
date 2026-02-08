@@ -1,12 +1,13 @@
 # SHINE: SHear INference Environment
 
 <div align="center">
-  <img src="assets/logo.png" alt="SHINE Logo" width="1024"/>
+  <img src="https://raw.githubusercontent.com/CosmoStat/SHINE/main/assets/logo.png" alt="SHINE Logo" width="1024"/>
 
   **A JAX-powered framework for probabilistic shear estimation in weak gravitational lensing**
 
   [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
   [![JAX](https://img.shields.io/badge/JAX-latest-green.svg)](https://github.com/google/jax)
+  [![PyPI](https://img.shields.io/pypi/v/shine-wl.svg)](https://pypi.org/project/shine-wl/)
   [![Docs](https://img.shields.io/badge/docs-cosmostat.github.io%2FSHINE-7c4dff.svg)](https://cosmostat.github.io/SHINE/)
   [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE) <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
   [![All Contributors](https://img.shields.io/badge/all_contributors-4-orange.svg)](#contributors-)
@@ -30,12 +31,15 @@ SHINE (SHear INference Environment) is a modern, high-performance framework for 
 ## 📦 Installation
 
 ```bash
-# Clone the repository
+pip install shine-wl
+```
+
+For development (editable install from source):
+
+```bash
 git clone https://github.com/CosmoStat/SHINE.git
 cd SHINE
-
-# Install dependencies (recommended: use a virtual environment)
-pip install -e .
+pip install -e ".[dev,test]"
 ```
 
 ## 🚀 Quick Start

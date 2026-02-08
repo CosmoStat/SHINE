@@ -7,18 +7,26 @@
 - Python >= 3.11
 - A JAX-compatible GPU is recommended but not required
 
-### Install from source
+### Install from PyPI
+
+```bash
+pip install shine-wl
+```
+
+### Install from source (development)
+
+For contributing or working on SHINE itself:
 
 ```bash
 git clone https://github.com/CosmoStat/SHINE.git
 cd SHINE
-pip install -e .
+pip install -e ".[dev,test]"
 ```
 
-For documentation tools:
+Optional extras:
 
 ```bash
-pip install -e ".[docs]"
+pip install -e ".[docs]"   # documentation tools (mkdocs)
 ```
 
 ## Your First Run

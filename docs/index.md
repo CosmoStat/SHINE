@@ -30,10 +30,8 @@ fast, GPU-accelerated inference using **NumPyro** and **JAX-GalSim**.
 ## Quick Start
 
 ```bash
-# Install
-git clone https://github.com/CosmoStat/SHINE.git
-cd SHINE
-pip install -e .
+# Install from PyPI
+pip install shine-wl
 
 # Run inference
 python -m shine.main --config configs/test_run.yaml
