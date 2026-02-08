@@ -6,15 +6,17 @@ and makes better use of GPU parallelism.
 
 ## How It Works
 
-Instead of running N separate MCMC jobs, batched inference:
+Instead of running N separate inference jobs, batched inference:
 
 1. Generates N synthetic observations and stacks them into a single array
 2. Builds a batched NumPyro model that `vmap`s over the batch dimension
-3. Runs one MCMC chain that samples all N shear posteriors simultaneously
+3. Runs one inference pass that samples all N shear posteriors simultaneously
 4. Splits the combined posterior back into per-realization outputs
 
 Each realization gets its own shear latent variables (`g1_0`, `g1_1`, ...) so
-they are independent despite sharing the same MCMC chain.
+they are independent despite sharing the same inference run. The inference
+method (NUTS, MAP, or VI) is determined by the YAML config's `inference.method`
+field.
 
 ## Usage
 

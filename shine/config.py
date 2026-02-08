@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -297,16 +297,15 @@ class MAPConfig(BaseModel):
         return v
 
 
-class InferenceConfig(BaseModel):
-    """Configuration for Bayesian inference settings.
+class NUTSConfig(BaseModel):
+    """Configuration for NUTS/MCMC inference.
 
     Attributes:
         warmup: Number of warmup/burn-in steps for MCMC (default 500).
         samples: Number of posterior samples to draw (default 1000).
         chains: Number of independent MCMC chains to run (default 1).
         dense_mass: Whether to use dense mass matrix in NUTS (default False).
-        map_init: Optional MAP initialization configuration.
-        rng_seed: Random number generator seed for reproducibility (default 0).
+        map_init: Optional MAP initialization before NUTS.
     """
 
     warmup: int = 500
@@ -314,7 +313,6 @@ class InferenceConfig(BaseModel):
     chains: int = 1
     dense_mass: bool = False
     map_init: Optional[MAPConfig] = None
-    rng_seed: int = 0
 
     @field_validator("warmup", "samples")
     @classmethod
@@ -331,6 +329,62 @@ class InferenceConfig(BaseModel):
         if v <= 0:
             raise ValueError(f"Number of chains must be positive, got {v}")
         return v
+
+
+class VIConfig(BaseModel):
+    """Configuration for Variational Inference.
+
+    Attributes:
+        num_steps: Number of SVI optimization steps (default 5000).
+        learning_rate: Learning rate for SVI optimizer (default 1e-3).
+        num_samples: Number of posterior samples to draw from fitted guide (default 1000).
+    """
+
+    num_steps: int = 5000
+    learning_rate: float = 1e-3
+    num_samples: int = 1000
+
+    @field_validator("num_steps", "num_samples")
+    @classmethod
+    def validate_positive_integers(cls, v: int, info) -> int:
+        """Validate that num_steps and num_samples are positive."""
+        if v <= 0:
+            raise ValueError(f"{info.field_name} must be positive, got {v}")
+        return v
+
+    @field_validator("learning_rate")
+    @classmethod
+    def validate_learning_rate_positive(cls, v: float) -> float:
+        """Validate that learning rate is positive."""
+        if v <= 0:
+            raise ValueError(f"Learning rate must be positive, got {v}")
+        return v
+
+
+class InferenceConfig(BaseModel):
+    """Configuration for Bayesian inference settings.
+
+    Supports three inference methods:
+    - "nuts": NUTS/MCMC sampling (default), optionally with MAP initialization.
+    - "map": MAP point estimation only.
+    - "vi": Variational Inference with AutoNormal guide.
+
+    Each method reads its own config block; the others are ignored.
+    When a method's config block is None, defaults are applied.
+
+    Attributes:
+        method: Inference method ("nuts", "map", or "vi").
+        nuts_config: Configuration for NUTS/MCMC (used when method="nuts").
+        map_config: Configuration for MAP estimation (used when method="map").
+        vi_config: Configuration for Variational Inference (used when method="vi").
+        rng_seed: Random number generator seed for reproducibility (default 0).
+    """
+
+    method: Literal["nuts", "map", "vi"] = "nuts"
+    nuts_config: Optional[NUTSConfig] = None
+    map_config: Optional[MAPConfig] = None
+    vi_config: Optional[VIConfig] = None
+    rng_seed: int = 0
 
     @field_validator("rng_seed")
     @classmethod

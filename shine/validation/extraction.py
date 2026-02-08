@@ -83,6 +83,13 @@ def extract_convergence_diagnostics(
 ) -> ConvergenceDiagnostics:
     """Extract convergence diagnostics from an InferenceData object.
 
+    Method-aware: reads ``inference_method`` from ``idata.posterior.attrs``
+    to determine which diagnostics are applicable.
+
+    - MAP (1 chain, 1 draw): returns sentinel values (rhat=1, ess=1).
+    - VI (1 chain, N draws): computes ESS, sets rhat=1, no MCMC stats.
+    - NUTS (default): full MCMC diagnostics.
+
     Args:
         idata: ArviZ InferenceData with posterior and sample_stats groups.
         params: Parameter names to compute diagnostics for (default: ["g1", "g2"]).
@@ -93,6 +100,37 @@ def extract_convergence_diagnostics(
     if params is None:
         params = ["g1", "g2"]
 
+    method = idata.posterior.attrs.get("inference_method", "nuts")
+    posterior = idata.posterior
+    n_chains = posterior.sizes.get("chain", 1)
+    n_samples_per_chain = posterior.sizes.get("draw", 0)
+    n_samples = n_chains * n_samples_per_chain
+
+    if method == "map":
+        return ConvergenceDiagnostics(
+            rhat={p: 1.0 for p in params},
+            ess={p: 1.0 for p in params},
+            divergences=0,
+            divergence_frac=0.0,
+            bfmi=[],
+            n_samples=n_samples,
+            n_chains=n_chains,
+        )
+
+    if method == "vi":
+        # ESS is meaningful for VI samples; rhat is not (single chain)
+        ess_data = az.ess(idata, var_names=params)
+        return ConvergenceDiagnostics(
+            rhat={p: 1.0 for p in params},
+            ess={p: float(ess_data[p].values) for p in params},
+            divergences=0,
+            divergence_frac=0.0,
+            bfmi=[],
+            n_samples=n_samples,
+            n_chains=n_chains,
+        )
+
+    # NUTS: full MCMC diagnostics
     # R-hat
     rhat_data = az.rhat(idata, var_names=params)
     rhat = {p: float(rhat_data[p].values) for p in params}
@@ -110,7 +148,6 @@ def extract_convergence_diagnostics(
     else:
         divergences = 0
         divergence_frac = 0.0
-        total_samples = 0
 
     # BFMI
     try:
@@ -119,12 +156,6 @@ def extract_convergence_diagnostics(
     except Exception as exc:
         logger.debug(f"Could not compute BFMI: {exc}")
         bfmi = []
-
-    # Chain/sample counts
-    posterior = idata.posterior
-    n_chains = posterior.sizes.get("chain", 1)
-    n_samples_per_chain = posterior.sizes.get("draw", 0)
-    n_samples = n_chains * n_samples_per_chain
 
     return ConvergenceDiagnostics(
         rhat=rhat,
@@ -170,16 +201,38 @@ def extract_shear_estimates(
 def check_convergence(
     diagnostics: ConvergenceDiagnostics,
     thresholds: ConvergenceThresholds,
+    method: str = "nuts",
 ) -> bool:
-    """Check if MCMC convergence diagnostics meet thresholds.
+    """Check if convergence diagnostics meet thresholds.
+
+    Method-aware:
+    - MAP: always returns True (point estimate, no convergence to check).
+    - VI: only checks ESS.
+    - NUTS: all four checks (rhat, ESS, divergences, BFMI).
 
     Args:
         diagnostics: Computed convergence diagnostics.
         thresholds: Threshold criteria to check against.
+        method: Inference method ("nuts", "map", or "vi").
 
     Returns:
-        True if all diagnostics pass, False otherwise.
+        True if all applicable diagnostics pass, False otherwise.
     """
+    if method == "map":
+        return True
+
+    if method == "vi":
+        # Only check ESS for VI samples
+        for param, ess_val in diagnostics.ess.items():
+            if ess_val < thresholds.ess_min:
+                logger.warning(
+                    f"ESS for {param} = {ess_val:.0f} below "
+                    f"threshold {thresholds.ess_min}"
+                )
+                return False
+        return True
+
+    # NUTS: full checks
     # Check R-hat (NaN/inf from degenerate posteriors are treated as failures)
     for param, rhat_val in diagnostics.rhat.items():
         if np.isnan(rhat_val) or np.isinf(rhat_val):
@@ -249,7 +302,8 @@ def extract_realization(
     diagnostics = extract_convergence_diagnostics(idata)
     g1_est = extract_shear_estimates(idata, "g1")
     g2_est = extract_shear_estimates(idata, "g2")
-    passed = check_convergence(diagnostics, thresholds)
+    method = idata.posterior.attrs.get("inference_method", "nuts")
+    passed = check_convergence(diagnostics, thresholds, method=method)
 
     return RealizationResult(
         run_id=run_id,
