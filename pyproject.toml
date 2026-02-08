@@ -3,7 +3,7 @@ requires = ["setuptools>=61", "setuptools-scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "shine"
+name = "shine-wl"
 dynamic = ["version"]
 description = "A JAX-powered framework for probabilistic shear estimation in weak gravitational lensing"
 readme = "README.md"
