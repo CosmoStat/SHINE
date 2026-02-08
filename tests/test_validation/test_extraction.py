@@ -24,8 +24,13 @@ def _make_mock_idata(
     n_chains=2,
     n_samples=500,
     n_divergences=0,
+    inference_method=None,
 ):
-    """Create a mock InferenceData object for testing."""
+    """Create a mock InferenceData object for testing.
+
+    Args:
+        inference_method: If provided, sets the inference_method attr on posterior.
+    """
     rng = np.random.default_rng(42)
     posterior = {
         "g1": rng.normal(g1_mean, g1_std, size=(n_chains, n_samples)),
@@ -44,7 +49,10 @@ def _make_mock_idata(
 
     sample_stats = {"diverging": diverging, "energy": energy}
 
-    return az.from_dict(posterior=posterior, sample_stats=sample_stats)
+    idata = az.from_dict(posterior=posterior, sample_stats=sample_stats)
+    if inference_method is not None:
+        idata.posterior.attrs["inference_method"] = inference_method
+    return idata
 
 
 class TestExtractConvergenceDiagnostics:
@@ -197,3 +205,120 @@ class TestExtractRealization:
         assert isinstance(result.diagnostics, ConvergenceDiagnostics)
         assert isinstance(result.passed_convergence, bool)
         assert result.seed == 42
+
+
+class TestMethodAwareDiagnostics:
+    """Tests for method-aware convergence diagnostics."""
+
+    def test_map_diagnostics_sentinels(self):
+        """MAP idata (1 chain, 1 draw) returns sentinel diagnostics."""
+        idata = _make_mock_idata(
+            n_chains=1, n_samples=1, inference_method="map"
+        )
+        diag = extract_convergence_diagnostics(idata)
+        assert diag.rhat == {"g1": 1.0, "g2": 1.0}
+        assert diag.ess == {"g1": 1.0, "g2": 1.0}
+        assert diag.divergences == 0
+        assert diag.bfmi == []
+        assert diag.n_chains == 1
+        assert diag.n_samples == 1
+
+    def test_map_check_convergence_always_true(self):
+        """MAP method always passes convergence."""
+        diag = ConvergenceDiagnostics(
+            rhat={"g1": 1.0, "g2": 1.0},
+            ess={"g1": 1.0, "g2": 1.0},
+            divergences=0,
+            divergence_frac=0.0,
+            bfmi=[],
+            n_samples=1,
+            n_chains=1,
+        )
+        thresholds = ConvergenceThresholds(ess_min=100)
+        # MAP always returns True regardless of ESS
+        assert check_convergence(diag, thresholds, method="map") is True
+
+    def test_vi_diagnostics_ess_computed(self):
+        """VI idata (1 chain, N draws) computes ESS, rhat=1.0."""
+        idata = _make_mock_idata(
+            n_chains=1, n_samples=1000, inference_method="vi"
+        )
+        diag = extract_convergence_diagnostics(idata)
+        assert diag.rhat == {"g1": 1.0, "g2": 1.0}
+        assert diag.ess["g1"] > 0
+        assert diag.ess["g2"] > 0
+        assert diag.divergences == 0
+        assert diag.bfmi == []
+        assert diag.n_chains == 1
+
+    def test_vi_check_convergence_only_checks_ess(self):
+        """VI convergence only checks ESS, not rhat/divergences/bfmi."""
+        diag = ConvergenceDiagnostics(
+            rhat={"g1": 2.0, "g2": 2.0},  # Would fail for NUTS
+            ess={"g1": 500, "g2": 500},
+            divergences=100,  # Would fail for NUTS
+            divergence_frac=0.1,
+            bfmi=[0.01],  # Would fail for NUTS
+            n_samples=1000,
+            n_chains=1,
+        )
+        thresholds = ConvergenceThresholds()
+        # VI only checks ESS, so this should pass
+        assert check_convergence(diag, thresholds, method="vi") is True
+
+    def test_vi_check_convergence_fails_low_ess(self):
+        """VI convergence fails when ESS is too low."""
+        diag = ConvergenceDiagnostics(
+            rhat={"g1": 1.0, "g2": 1.0},
+            ess={"g1": 10, "g2": 500},
+            divergences=0,
+            divergence_frac=0.0,
+            bfmi=[],
+            n_samples=1000,
+            n_chains=1,
+        )
+        thresholds = ConvergenceThresholds(ess_min=100)
+        assert check_convergence(diag, thresholds, method="vi") is False
+
+    def test_nuts_default_method(self):
+        """Without inference_method attr, defaults to NUTS behavior."""
+        idata = _make_mock_idata(n_chains=2, n_samples=500)
+        diag = extract_convergence_diagnostics(idata)
+        # Should compute full MCMC diagnostics
+        assert diag.rhat["g1"] < 1.1
+        assert diag.ess["g1"] > 0
+        assert isinstance(diag.bfmi, list)
+        assert len(diag.bfmi) == 2
+
+    def test_extract_shear_estimates_map(self):
+        """extract_shear_estimates works for MAP (1 chain, 1 draw)."""
+        idata = _make_mock_idata(
+            g1_mean=0.01, n_chains=1, n_samples=1, inference_method="map"
+        )
+        est = extract_shear_estimates(idata, "g1")
+        assert isinstance(est, ShearEstimates)
+        # For a single sample, mean == median == the value
+        assert est.mean == est.median
+        assert est.std == 0.0
+
+    def test_extract_shear_estimates_vi(self):
+        """extract_shear_estimates works for VI (1 chain, N draws)."""
+        idata = _make_mock_idata(
+            g1_mean=0.02, n_chains=1, n_samples=1000, inference_method="vi"
+        )
+        est = extract_shear_estimates(idata, "g1")
+        assert isinstance(est, ShearEstimates)
+        assert est.mean == pytest.approx(0.02, abs=0.005)
+
+    def test_extract_realization_map(self):
+        """extract_realization works end-to-end for MAP."""
+        idata = _make_mock_idata(
+            g1_mean=0.01, g2_mean=0.0,
+            n_chains=1, n_samples=1, inference_method="map"
+        )
+        thresholds = ConvergenceThresholds()
+        result = extract_realization(
+            idata, g1_true=0.01, g2_true=0.0,
+            run_id="map_test", seed=0, thresholds=thresholds,
+        )
+        assert result.passed_convergence is True

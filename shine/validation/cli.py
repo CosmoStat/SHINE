@@ -155,7 +155,7 @@ def run_bias_realization() -> None:
     rng_key = jax.random.PRNGKey(shine_config.inference.rng_seed)
     engine = Inference(model=model_fn, config=shine_config.inference)
 
-    logger.info("Running MCMC inference...")
+    logger.info(f"Running {shine_config.inference.method.upper()} inference...")
     idata = engine.run(
         rng_key=rng_key,
         observed_data=sim_result.observation.image,
@@ -273,7 +273,7 @@ def _run_batched(args: argparse.Namespace) -> None:
         rng_key = jax.random.PRNGKey(shine_config.inference.rng_seed)
         engine = Inference(model=model_fn, config=shine_config.inference)
 
-        logger.info(f"Running batched MCMC ({n_batch} realizations)...")
+        logger.info(f"Running batched {shine_config.inference.method.upper()} ({n_batch} realizations)...")
         idata = engine.run(
             rng_key=rng_key,
             observed_data=batch_result.images,

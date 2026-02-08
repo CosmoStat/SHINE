@@ -26,19 +26,21 @@ Stage 1 (Run)       Stage 2 (Extract)     Stage 3 (Stats)
 Config + shear  →   posterior.nc      →   summary.csv      →  bias_results.json
   ↓                   ↓                     ↓
 Generate data       Extract diagnostics   Compute m, c
-Run MCMC            Check convergence     Check acceptance
+Run inference       Check convergence     Check acceptance
 Save posterior      Write CSV             Generate plots
 ```
 
 ### Stage 1: Run (`shine-bias-run`)
 
-Generates synthetic data with an explicit shear override and runs MCMC inference.
+Generates synthetic data with an explicit shear override and runs inference.
+The inference method (NUTS, MAP, or VI) is determined by the `inference.method`
+field in the SHINE config YAML.
 
 **Outputs** (per realization):
 
-- `posterior.nc` -- ArviZ InferenceData with posterior samples
+- `posterior.nc` -- ArviZ InferenceData (posterior samples, or point estimate for MAP)
 - `truth.json` -- ground truth shear values and seed
-- `convergence.json` -- R-hat, ESS, divergences, BFMI
+- `convergence.json` -- convergence diagnostics (method-aware)
 
 ### Stage 2: Extract (`shine-bias-extract`)
 

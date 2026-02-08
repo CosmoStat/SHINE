@@ -155,31 +155,95 @@ gal:
 
 ## Inference Section
 
-Controls the MCMC sampler and optional MAP initialization.
+Controls the inference method and its settings. SHINE supports three methods:
+
+- **`nuts`** (default): NUTS/MCMC sampling, optionally preceded by MAP initialization.
+- **`map`**: MAP point estimation only (fast, no posterior samples).
+- **`vi`**: Variational Inference with an AutoNormal guide (approximate posterior).
+
+All three methods return ArviZ `InferenceData`, so the downstream pipeline
+(extraction, diagnostics, plots) works uniformly.
+
+### Method selection
 
 ```yaml
 inference:
-  warmup: 500           # NUTS warmup steps
-  samples: 1000         # posterior samples
-  chains: 2             # number of parallel chains
-  dense_mass: false     # use dense mass matrix
-  rng_seed: 42          # reproducibility seed
-  map_init:
-    enabled: true       # run MAP before MCMC
-    num_steps: 1000     # Adam optimization steps
-    learning_rate: 0.01
+  method: nuts          # "nuts", "map", or "vi"
+  rng_seed: 42          # JAX PRNG seed (shared across all methods)
+```
+
+Each method reads its own config block; the others are ignored. When a
+method's config block is omitted, defaults are used.
+
+### NUTS config
+
+```yaml
+inference:
+  method: nuts
+  nuts_config:
+    warmup: 500           # NUTS warmup steps
+    samples: 1000         # posterior samples per chain
+    chains: 2             # number of parallel chains
+    dense_mass: false     # use dense mass matrix
+    map_init:             # optional MAP pre-initialization
+      enabled: true
+      num_steps: 1000
+      learning_rate: 0.01
+  rng_seed: 42
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `warmup` | int > 0 | -- | NUTS warmup iterations |
-| `samples` | int > 0 | -- | Number of posterior samples |
-| `chains` | int > 0 | -- | Number of MCMC chains |
-| `dense_mass` | bool | `false` | Dense mass matrix for correlated parameters |
-| `rng_seed` | int >= 0 | -- | JAX PRNG seed |
-| `map_init.enabled` | bool | `false` | Enable MAP pre-initialization |
-| `map_init.num_steps` | int > 0 | -- | Optimization steps for MAP |
-| `map_init.learning_rate` | float > 0 | -- | Adam learning rate for MAP |
+| `nuts_config.warmup` | int > 0 | `500` | NUTS warmup iterations |
+| `nuts_config.samples` | int > 0 | `1000` | Number of posterior samples |
+| `nuts_config.chains` | int > 0 | `1` | Number of MCMC chains |
+| `nuts_config.dense_mass` | bool | `false` | Dense mass matrix for correlated parameters |
+| `nuts_config.map_init.enabled` | bool | `false` | Enable MAP pre-initialization |
+| `nuts_config.map_init.num_steps` | int > 0 | `1000` | Optimization steps for MAP |
+| `nuts_config.map_init.learning_rate` | float > 0 | `0.01` | Adam learning rate for MAP |
+
+### MAP config
+
+```yaml
+inference:
+  method: map
+  map_config:
+    num_steps: 2000
+    learning_rate: 0.005
+  rng_seed: 42
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `map_config.num_steps` | int > 0 | `1000` | Adam optimization steps |
+| `map_config.learning_rate` | float > 0 | `0.01` | Adam learning rate |
+
+MAP returns a single point estimate (1 chain, 1 draw in the InferenceData).
+
+### VI config
+
+```yaml
+inference:
+  method: vi
+  vi_config:
+    num_steps: 5000
+    learning_rate: 0.001
+    num_samples: 2000
+  rng_seed: 42
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `vi_config.num_steps` | int > 0 | `5000` | SVI optimization steps |
+| `vi_config.learning_rate` | float > 0 | `0.001` | Adam learning rate |
+| `vi_config.num_samples` | int > 0 | `1000` | Posterior samples drawn from fitted guide |
+
+### Common parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `method` | `"nuts"` / `"map"` / `"vi"` | `"nuts"` | Inference method |
+| `rng_seed` | int >= 0 | `0` | JAX PRNG seed |
 
 ## Complete Example
 
@@ -220,13 +284,15 @@ gal:
     y_max: 24.5
 
 inference:
-  warmup: 500
-  samples: 1000
-  chains: 2
-  dense_mass: false
+  method: nuts
+  nuts_config:
+    warmup: 500
+    samples: 1000
+    chains: 2
+    dense_mass: false
+    map_init:
+      enabled: true
+      num_steps: 1000
+      learning_rate: 0.01
   rng_seed: 42
-  map_init:
-    enabled: true
-    num_steps: 1000
-    learning_rate: 0.01
 ```

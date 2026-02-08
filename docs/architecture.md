@@ -60,12 +60,14 @@ The forward model is fully differentiable, enabling gradient-based samplers.
 
 ### Inference Engine (`shine.inference`)
 
-Runs Bayesian inference with optional MAP initialization:
+Runs Bayesian inference using one of three methods, configured via YAML:
 
-1. **MAP phase** (optional): Adam optimizer finds a good starting point
-2. **MCMC phase**: NUTS sampler explores the posterior
+- **NUTS**: MCMC sampling with the No-U-Turn Sampler, optionally preceded by MAP initialization.
+- **MAP**: Maximum a posteriori point estimation (fast, no posterior samples).
+- **VI**: Variational Inference with an AutoNormal guide (approximate posterior).
 
-Results are returned as ArviZ `InferenceData` objects with full diagnostics.
+All three methods return ArviZ `InferenceData` objects, so the downstream
+pipeline (extraction, diagnostics, plots) works uniformly.
 
 ### Data Loading (`shine.data`)
 

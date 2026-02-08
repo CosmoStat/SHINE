@@ -78,7 +78,7 @@ def main() -> None:
         model_fn = scene_builder.build_model()
 
         # 6. Run Bayesian inference
-        logger.info("Starting Bayesian inference pipeline...")
+        logger.info(f"Starting {config.inference.method.upper()} inference pipeline...")
         try:
             rng_key = jax.random.PRNGKey(config.inference.rng_seed)
             engine = Inference(model=model_fn, config=config.inference)

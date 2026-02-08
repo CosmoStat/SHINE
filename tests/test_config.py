@@ -15,9 +15,11 @@ from shine.config import (
     InferenceConfig,
     MAPConfig,
     NoiseConfig,
+    NUTSConfig,
     PSFConfig,
     ShearConfig,
     ShineConfig,
+    VIConfig,
 )
 
 
@@ -178,24 +180,121 @@ class TestMAPConfig:
         assert config.learning_rate == 1e-3
 
 
-class TestInferenceConfig:
-    """Test InferenceConfig."""
+class TestNUTSConfig:
+    """Test NUTSConfig."""
 
-    def test_inference_config_defaults(self):
-        """Test inference configuration with defaults."""
-        config = InferenceConfig()
+    def test_nuts_config_defaults(self):
+        """Test NUTS configuration with defaults."""
+        config = NUTSConfig()
         assert config.warmup == 500
         assert config.samples == 1000
         assert config.chains == 1
         assert config.dense_mass is False
         assert config.map_init is None
 
-    def test_inference_config_with_map(self):
-        """Test inference configuration with MAP initialization."""
+    def test_nuts_config_with_map_init(self):
+        """Test NUTS configuration with MAP initialization."""
         map_config = MAPConfig(enabled=True)
-        config = InferenceConfig(map_init=map_config)
+        config = NUTSConfig(map_init=map_config)
         assert config.map_init is not None
         assert config.map_init.enabled is True
+
+    def test_nuts_config_custom_values(self):
+        """Test NUTS configuration with custom values."""
+        config = NUTSConfig(warmup=200, samples=500, chains=4, dense_mass=True)
+        assert config.warmup == 200
+        assert config.samples == 500
+        assert config.chains == 4
+        assert config.dense_mass is True
+
+    def test_nuts_config_invalid_warmup(self):
+        """Test that non-positive warmup raises error."""
+        with pytest.raises(ValueError, match="warmup must be positive"):
+            NUTSConfig(warmup=0)
+
+    def test_nuts_config_invalid_chains(self):
+        """Test that non-positive chains raises error."""
+        with pytest.raises(ValueError, match="Number of chains must be positive"):
+            NUTSConfig(chains=0)
+
+
+class TestVIConfig:
+    """Test VIConfig."""
+
+    def test_vi_config_defaults(self):
+        """Test VI configuration with defaults."""
+        config = VIConfig()
+        assert config.num_steps == 5000
+        assert config.learning_rate == 1e-3
+        assert config.num_samples == 1000
+
+    def test_vi_config_custom_values(self):
+        """Test VI configuration with custom values."""
+        config = VIConfig(num_steps=10000, learning_rate=5e-4, num_samples=2000)
+        assert config.num_steps == 10000
+        assert config.learning_rate == 5e-4
+        assert config.num_samples == 2000
+
+    def test_vi_config_invalid_num_steps(self):
+        """Test that non-positive num_steps raises error."""
+        with pytest.raises(ValueError, match="num_steps must be positive"):
+            VIConfig(num_steps=0)
+
+    def test_vi_config_invalid_learning_rate(self):
+        """Test that non-positive learning rate raises error."""
+        with pytest.raises(ValueError, match="Learning rate must be positive"):
+            VIConfig(learning_rate=-0.01)
+
+    def test_vi_config_invalid_num_samples(self):
+        """Test that non-positive num_samples raises error."""
+        with pytest.raises(ValueError, match="num_samples must be positive"):
+            VIConfig(num_samples=0)
+
+
+class TestInferenceConfig:
+    """Test InferenceConfig."""
+
+    def test_inference_config_defaults(self):
+        """Test inference configuration with defaults."""
+        config = InferenceConfig()
+        assert config.method == "nuts"
+        assert config.nuts_config is None
+        assert config.map_config is None
+        assert config.vi_config is None
+        assert config.rng_seed == 0
+
+    def test_inference_config_method_nuts(self):
+        """Test inference configuration with NUTS method."""
+        nuts = NUTSConfig(warmup=200, samples=500)
+        config = InferenceConfig(method="nuts", nuts_config=nuts)
+        assert config.method == "nuts"
+        assert config.nuts_config.warmup == 200
+        assert config.nuts_config.samples == 500
+
+    def test_inference_config_method_map(self):
+        """Test inference configuration with MAP method."""
+        map_cfg = MAPConfig(enabled=True, num_steps=2000)
+        config = InferenceConfig(method="map", map_config=map_cfg)
+        assert config.method == "map"
+        assert config.map_config.num_steps == 2000
+
+    def test_inference_config_method_vi(self):
+        """Test inference configuration with VI method."""
+        vi = VIConfig(num_steps=5000, learning_rate=0.001, num_samples=2000)
+        config = InferenceConfig(method="vi", vi_config=vi)
+        assert config.method == "vi"
+        assert config.vi_config.num_steps == 5000
+        assert config.vi_config.num_samples == 2000
+
+    def test_inference_config_invalid_method(self):
+        """Test that invalid method raises validation error."""
+        with pytest.raises(ValueError):
+            InferenceConfig(method="invalid")
+
+    def test_inference_config_no_method_defaults_to_nuts(self):
+        """Test backward compatibility: no method field defaults to nuts."""
+        config = InferenceConfig(rng_seed=42)
+        assert config.method == "nuts"
 
 
 class TestShineConfig:
@@ -248,7 +347,10 @@ class TestConfigHandler:
                 "half_light_radius": 1.0,
                 "shear": {"type": "G1G2", "g1": 0.01, "g2": -0.02},
             },
-            "inference": {"warmup": 500, "samples": 1000},
+            "inference": {
+                "method": "nuts",
+                "nuts_config": {"warmup": 500, "samples": 1000},
+            },
             "output_path": "results",
         }
 

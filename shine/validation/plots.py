@@ -69,12 +69,13 @@ def plot_level0_diagnostics(
     g2_true: float,
     output_dir: str,
 ) -> List[Path]:
-    """Generate Level 0 diagnostic plots.
+    """Generate Level 0 diagnostic plots, dispatching on inference method.
 
-    Produces:
-    - Trace plots for g1 and g2
-    - Marginal posterior histograms with truth lines
-    - Pair plot (g1 vs g2)
+    Reads ``inference_method`` from ``idata.posterior.attrs`` to select
+    the appropriate plotting style:
+    - NUTS: trace plots + histograms + pair plot
+    - VI: histograms + pair plot (no trace since no chains)
+    - MAP: bar at point estimate + truth line (2 panels: g1, g2)
 
     Args:
         idata: ArviZ InferenceData with posterior samples.
@@ -85,6 +86,22 @@ def plot_level0_diagnostics(
     Returns:
         List of saved plot file paths.
     """
+    method = idata.posterior.attrs.get("inference_method", "nuts")
+    if method == "map":
+        return _plot_map_diagnostics(idata, g1_true, g2_true, output_dir)
+    elif method == "vi":
+        return _plot_vi_diagnostics(idata, g1_true, g2_true, output_dir)
+    else:
+        return _plot_nuts_diagnostics(idata, g1_true, g2_true, output_dir)
+
+
+def _plot_nuts_diagnostics(
+    idata: az.InferenceData,
+    g1_true: float,
+    g2_true: float,
+    output_dir: str,
+) -> List[Path]:
+    """Generate NUTS diagnostic plots: trace + histograms + pair plot."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     saved = []
@@ -153,6 +170,111 @@ def plot_level0_diagnostics(
     plt.close(fig2)
     saved.append(pair_path)
     logger.info(f"Saved pair plot to {pair_path}")
+
+    return saved
+
+
+def _plot_vi_diagnostics(
+    idata: az.InferenceData,
+    g1_true: float,
+    g2_true: float,
+    output_dir: str,
+) -> List[Path]:
+    """Generate VI diagnostic plots: histograms + pair plot (no trace)."""
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    saved = []
+
+    g1_samples = idata.posterior.g1.values.flatten()
+    g2_samples = idata.posterior.g2.values.flatten()
+
+    # --- Marginal posteriors ---
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    _safe_hist(axes[0], g1_samples, "steelblue", "black")
+    axes[0].axvline(g1_true, color="red", ls="--", lw=2, label="Truth")
+    axes[0].axvline(g1_samples.mean(), color="green", lw=2, label="Mean")
+    axes[0].set(
+        xlabel="g1",
+        title=f"VI: g1 = {g1_samples.mean():.4f} ± {g1_samples.std():.4f}",
+    )
+    axes[0].legend()
+
+    _safe_hist(axes[1], g2_samples, "coral", "black")
+    axes[1].axvline(g2_true, color="red", ls="--", lw=2, label="Truth")
+    axes[1].axvline(g2_samples.mean(), color="green", lw=2, label="Mean")
+    axes[1].set(
+        xlabel="g2",
+        title=f"VI: g2 = {g2_samples.mean():.4f} ± {g2_samples.std():.4f}",
+    )
+    axes[1].legend()
+
+    fig.tight_layout()
+    hist_path = output_path / "vi_posterior.png"
+    fig.savefig(hist_path, dpi=150)
+    plt.close(fig)
+    saved.append(hist_path)
+    logger.info(f"Saved VI posterior plot to {hist_path}")
+
+    # --- Pair plot ---
+    fig2, ax2 = plt.subplots(1, 1, figsize=(6, 6))
+    ax2.scatter(g1_samples, g2_samples, alpha=0.1, s=2, color="steelblue")
+    ax2.axvline(g1_true, color="red", ls="--", lw=1.5, label="g1 truth")
+    ax2.axhline(g2_true, color="red", ls="--", lw=1.5, label="g2 truth")
+    ax2.plot(g1_true, g2_true, "r*", ms=15, label="Truth")
+    ax2.plot(g1_samples.mean(), g2_samples.mean(), "g*", ms=15, label="Mean")
+    ax2.set(xlabel="g1", ylabel="g2", title="VI: g1 vs g2 posterior")
+    ax2.legend()
+    fig2.tight_layout()
+    pair_path = output_path / "pair_plot.png"
+    fig2.savefig(pair_path, dpi=150)
+    plt.close(fig2)
+    saved.append(pair_path)
+    logger.info(f"Saved VI pair plot to {pair_path}")
+
+    return saved
+
+
+def _plot_map_diagnostics(
+    idata: az.InferenceData,
+    g1_true: float,
+    g2_true: float,
+    output_dir: str,
+) -> List[Path]:
+    """Generate MAP diagnostic plots: bar at point estimate + truth line."""
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    saved = []
+
+    g1_val = float(idata.posterior.g1.values.flatten()[0])
+    g2_val = float(idata.posterior.g2.values.flatten()[0])
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+    # g1 MAP estimate
+    bar_width = max(abs(g1_true) * 0.1, 1e-4)
+    axes[0].bar(g1_val, 1.0, width=bar_width, alpha=0.7,
+                color="steelblue", edgecolor="black", label="MAP")
+    axes[0].axvline(g1_true, color="red", ls="--", lw=2, label="Truth")
+    axes[0].set(xlabel="g1", title=f"MAP: g1 = {g1_val:.6f} (truth = {g1_true:.4f})")
+    axes[0].set_ylabel("(point estimate)")
+    axes[0].legend()
+
+    # g2 MAP estimate
+    bar_width = max(abs(g2_true) * 0.1, 1e-4)
+    axes[1].bar(g2_val, 1.0, width=bar_width, alpha=0.7,
+                color="coral", edgecolor="black", label="MAP")
+    axes[1].axvline(g2_true, color="red", ls="--", lw=2, label="Truth")
+    axes[1].set(xlabel="g2", title=f"MAP: g2 = {g2_val:.6f} (truth = {g2_true:.4f})")
+    axes[1].set_ylabel("(point estimate)")
+    axes[1].legend()
+
+    fig.tight_layout()
+    map_path = output_path / "map_estimate.png"
+    fig.savefig(map_path, dpi=150)
+    plt.close(fig)
+    saved.append(map_path)
+    logger.info(f"Saved MAP estimate plot to {map_path}")
 
     return saved
 
