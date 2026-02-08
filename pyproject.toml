@@ -9,16 +9,7 @@ description = "A JAX-powered framework for probabilistic shear estimation in wea
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
-    {name = "Emma Ayçoberry", email = "emma.aycoberry@cea.fr"},
-    {name = "Ezequiel Centofanti", email = "ezequiel.centofanti@cea.fr"},
-    {name = "Sam Farrens", email = "sam.farrens@cea.fr"},
-    {name = "Francois Lanusse", email = "francois.lanusse@cnrs.fr"},
-]
-maintainers = [
-    {name = "Emma Ayçoberry", email = "emma.aycoberry@cea.fr"},
-    {name = "Ezequiel Centofanti", email = "ezequiel.centofanti@cea.fr"},
-    {name = "Sam Farrens", email = "sam.farrens@cea.fr"},
-    {name = "Francois Lanusse", email = "francois.lanusse@cnrs.fr"},
+    {name = "SHINE Developers"},
 ]
 license = "MIT"
 keywords = ["cosmology", "weak-lensing", "shear", "jax", "astronomy"]
