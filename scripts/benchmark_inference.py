@@ -139,7 +139,7 @@ def build_config(num_steps: int = 200, lr: float = 0.1, fft_size: int = 128,
             fft_size=fft_size,
             noise=NoiseConfig(type="Gaussian", sigma=1e-6),
         ),
-        psf=PSFConfig(type="Moffat", sigma=0.9, beta=2.5),
+        psf=PSFConfig(type="Gaussian", sigma=0.382),
         gal=GalaxyConfig(
             type="Exponential",
             flux=1.0,
@@ -403,7 +403,7 @@ def generate_trace(model_fn, observed_data, psf, rng_key, config, trace_dir):
 
     map_cfg = config.inference.map_config
 
-    with jax.profiler.trace(trace_dir, create_perfetto_link=True):
+    with jax.profiler.trace(trace_dir, create_perfetto_link=False):
         guide = AutoDelta(model_fn)
         optimizer = numpyro.optim.Adam(step_size=map_cfg.learning_rate)
         svi = SVI(model_fn, guide, optimizer, loss=Trace_ELBO())
