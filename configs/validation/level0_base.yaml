@@ -18,9 +18,8 @@ image:
     sigma: 1.0e-6         # Effectively noiseless (matches metacal default)
 
 psf:
-  type: Moffat
-  sigma: 0.9              # FWHM in arcsec (matches metacal psf_fwhm=0.9)
-  beta: 2.5               # Moffat beta (matches metacal)
+  type: Gaussian
+  sigma: 0.382
 
 gal:
   type: Exponential
