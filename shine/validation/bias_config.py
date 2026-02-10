@@ -86,6 +86,41 @@ class AcceptanceCriteria(BaseModel):
     max_abs_m: Optional[float] = None
     max_abs_c: Optional[float] = None
     coverage_levels: List[float] = Field(default=[0.68, 0.95])
+    coverage_tolerance: float = 0.03
+    sbc_ks_pvalue_min: float = 0.01
+    snr_threshold: Optional[float] = None
+
+
+class FluxNoiseGrid(BaseModel):
+    """Grid of flux and noise values for Level 1 parameter sweep.
+
+    Attributes:
+        flux_values: List of galaxy flux values to test.
+        noise_values: List of noise sigma values to test.
+    """
+
+    flux_values: List[float] = Field(
+        default=[100.0, 500.0, 1000.0, 5000.0]
+    )
+    noise_values: List[float] = Field(
+        default=[0.01, 0.1, 0.5, 1.0]
+    )
+
+    @field_validator("flux_values")
+    @classmethod
+    def validate_flux(cls, v: List[float]) -> List[float]:
+        for val in v:
+            if val <= 0:
+                raise ValueError(f"Flux values must be positive, got {val}")
+        return v
+
+    @field_validator("noise_values")
+    @classmethod
+    def validate_noise(cls, v: List[float]) -> List[float]:
+        for val in v:
+            if val <= 0:
+                raise ValueError(f"Noise values must be positive, got {val}")
+        return v
 
 
 class BiasRunConfig(BaseModel):
@@ -152,6 +187,7 @@ class BiasTestConfig(BaseModel):
         default_factory=ConvergenceThresholds
     )
     acceptance: AcceptanceCriteria = Field(default_factory=AcceptanceCriteria)
+    flux_noise_grid: Optional[FluxNoiseGrid] = None
     output_dir: str = "results/validation"
 
     @field_validator("n_realizations")

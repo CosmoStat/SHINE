@@ -12,6 +12,7 @@ nav:
   - Validation:
     - Overview: validation/index.md
     - Level 0 Walkthrough: validation/level0.md
+    - Level 1 Walkthrough: validation/level1.md
     - GPU-Batched Inference: validation/batched.md
   - API Reference:
     - shine.config: api/config.md

@@ -34,12 +34,13 @@ Save posterior      Write CSV             Generate plots
 
 Generates synthetic data with an explicit shear override and runs inference.
 The inference method (NUTS, MAP, or VI) is determined by the `inference.method`
-field in the SHINE config YAML.
+field in the SHINE config YAML. For Level 1, use `--paired` to generate
+paired $+g/-g$ observations with random intrinsic ellipticity.
 
 **Outputs** (per realization):
 
 - `posterior.nc` -- ArviZ InferenceData (posterior samples, or point estimate for MAP)
-- `truth.json` -- ground truth shear values and seed
+- `truth.json` -- ground truth shear values, seed, and (for Level 1) ellipticity and pair metadata
 - `convergence.json` -- convergence diagnostics (method-aware)
 
 ### Stage 2: Extract (`shine-bias-extract`)
@@ -65,13 +66,14 @@ and optionally generates diagnostic plots.
 | Level | Description | Noise | Galaxies |
 |-------|-------------|-------|----------|
 | **Level 0** | Noiseless sanity check | Very low | Single, fixed morphology |
-| Level 1 | Low-noise regression | Low | Single, varied morphology |
+| **Level 1** | Noise bias (paired shear) | Realistic | Single, random ellipticity |
 | Level 2 | Realistic noise | Survey-like | Population with priors |
 | Level 3 | Full survey simulation | Realistic | Multi-galaxy scenes |
 
 !!! note
-    Currently only **Level 0** is fully implemented. Higher levels are defined
-    in the configuration schema but their statistical routines are stubs.
+    **Level 0** and **Level 1** are fully implemented. Level 1 adds noise,
+    random ellipticity, the paired-shear method, and full statistical analysis
+    (bias regression, coverage, SBC). Higher levels are planned.
 
 ## Configuration
 
@@ -104,6 +106,7 @@ output_dir: results/validation/level0
 
 ## Next Steps
 
-- [Level 0 Walkthrough](level0.md) -- step-by-step tutorial
+- [Level 0 Walkthrough](level0.md) -- noiseless sanity check
+- [Level 1 Walkthrough](level1.md) -- noise bias with paired shear
 - [GPU-Batched Inference](batched.md) -- running multiple realizations efficiently
 - [API Reference](../api/validation/index.md) -- full module documentation

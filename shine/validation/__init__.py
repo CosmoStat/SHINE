@@ -6,6 +6,7 @@ from shine.validation.bias_config import (
     BiasRunConfig,
     BiasTestConfig,
     ConvergenceThresholds,
+    FluxNoiseGrid,
     ShearGrid,
 )
 from shine.validation.extraction import (
@@ -18,10 +19,16 @@ from shine.validation.extraction import (
     extract_shear_estimates,
     split_batched_idata,
 )
-from shine.validation.plots import plot_level0_diagnostics
+from shine.validation.plots import (
+    plot_bias_vs_shear,
+    plot_coverage,
+    plot_level0_diagnostics,
+    plot_sbc_histogram,
+)
 from shine.validation.simulation import (
     BatchSimulationResult,
     SimulationResult,
+    draw_ellipticity,
     generate_batch_observations,
     generate_biased_observation,
     generate_paired_observations,
@@ -30,7 +37,12 @@ from shine.validation.statistics import (
     BiasResult,
     CoverageResult,
     SBCResult,
+    compute_bias_regression,
     compute_bias_single_point,
+    compute_coverage,
+    compute_paired_response,
+    compute_sbc_ranks,
+    jackknife_bias,
 )
 
 __all__ = [
@@ -40,10 +52,12 @@ __all__ = [
     "BiasRunConfig",
     "BiasTestConfig",
     "ConvergenceThresholds",
+    "FluxNoiseGrid",
     "ShearGrid",
     # Simulation
     "BatchSimulationResult",
     "SimulationResult",
+    "draw_ellipticity",
     "generate_batch_observations",
     "generate_biased_observation",
     "generate_paired_observations",
@@ -60,7 +74,15 @@ __all__ = [
     "BiasResult",
     "CoverageResult",
     "SBCResult",
+    "compute_bias_regression",
     "compute_bias_single_point",
+    "compute_coverage",
+    "compute_paired_response",
+    "compute_sbc_ranks",
+    "jackknife_bias",
     # Plots
+    "plot_bias_vs_shear",
+    "plot_coverage",
     "plot_level0_diagnostics",
+    "plot_sbc_histogram",
 ]

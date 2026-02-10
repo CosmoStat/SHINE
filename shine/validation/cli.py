@@ -6,6 +6,7 @@ Stage 3 (stats): Read CSV → compute bias → check acceptance → plots + JSON
 """
 
 import argparse
+import copy
 import csv
 import json
 import logging
@@ -14,9 +15,10 @@ from pathlib import Path
 
 import arviz as az
 import jax
+import numpy as np
 import yaml
 
-from shine.config import ConfigHandler
+from shine.config import ConfigHandler, ShineConfig
 from shine.validation.bias_config import (
     AcceptanceCriteria,
     BiasLevel,
@@ -24,18 +26,53 @@ from shine.validation.bias_config import (
     ConvergenceThresholds,
 )
 from shine.validation.extraction import extract_realization, split_batched_idata
-from shine.validation.plots import plot_level0_diagnostics
+from shine.validation.plots import (
+    plot_bias_vs_shear,
+    plot_coverage,
+    plot_level0_diagnostics,
+    plot_sbc_histogram,
+)
 from shine.validation.simulation import (
     generate_batch_observations,
     generate_biased_observation,
+    generate_paired_observations,
 )
-from shine.validation.statistics import compute_bias_single_point
+from shine.validation.statistics import (
+    compute_bias_regression,
+    compute_bias_single_point,
+    compute_coverage,
+    compute_paired_response,
+    compute_sbc_ranks,
+)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def override_shine_config(
+    config: ShineConfig,
+    flux: float | None = None,
+    noise_sigma: float | None = None,
+) -> ShineConfig:
+    """Create a copy of the SHINE config with flux and/or noise overrides.
+
+    Args:
+        config: Original SHINE configuration.
+        flux: If provided, override galaxy flux.
+        noise_sigma: If provided, override noise sigma.
+
+    Returns:
+        New ShineConfig with the overrides applied.
+    """
+    config = copy.deepcopy(config)
+    if flux is not None:
+        config.gal.flux = flux
+    if noise_sigma is not None:
+        config.image.noise.sigma = noise_sigma
+    return config
 
 
 # --------------------------------------------------------------------------- #
@@ -78,6 +115,20 @@ def run_bias_realization() -> None:
         "--base-seed", type=int, default=42,
         help="Starting seed, incremented per realization",
     )
+
+    # Level 1: paired shear and flux/noise overrides
+    parser.add_argument(
+        "--paired", action="store_true", default=False,
+        help="Run paired +g/-g realizations",
+    )
+    parser.add_argument(
+        "--flux", type=float, default=None,
+        help="Override galaxy flux in SHINE config",
+    )
+    parser.add_argument(
+        "--noise-sigma", type=float, default=None,
+        help="Override noise sigma in SHINE config",
+    )
     args = parser.parse_args()
 
     # Batched path: --batch-size > 1
@@ -105,6 +156,8 @@ def run_bias_realization() -> None:
         run_config_dict["output_dir"] = args.output_dir
     if args.run_id:
         run_config_dict["run_id"] = args.run_id
+    if args.paired:
+        run_config_dict["paired"] = True
 
     # Defaults
     run_config_dict.setdefault("g1_true", 0.0)
@@ -123,14 +176,43 @@ def run_bias_realization() -> None:
         logger.error(f"Invalid run config: {e}")
         sys.exit(1)
 
-    # Load SHINE config
+    # Load SHINE config and apply overrides
     shine_config = ConfigHandler.load(run_cfg.shine_config_path)
+    shine_config = override_shine_config(
+        shine_config, flux=args.flux, noise_sigma=args.noise_sigma
+    )
 
     # Create output dir
     output_dir = Path(run_cfg.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Stage 1a: Generate observation
+    from shine.inference import Inference
+    from shine.scene import SceneBuilder
+    from shine.validation.extraction import extract_convergence_diagnostics
+
+    if run_cfg.paired:
+        _run_paired_single(
+            shine_config, run_cfg, output_dir, args,
+        )
+    else:
+        _run_unpaired_single(
+            shine_config, run_cfg, output_dir, args,
+        )
+
+    logger.info("Stage 1 (run) complete.")
+
+
+def _run_unpaired_single(
+    shine_config: ShineConfig,
+    run_cfg: BiasRunConfig,
+    output_dir: Path,
+    args: argparse.Namespace,
+) -> None:
+    """Execute a single unpaired realization."""
+    from shine.inference import Inference
+    from shine.scene import SceneBuilder
+    from shine.validation.extraction import extract_convergence_diagnostics
+
     logger.info(
         f"Generating observation: g1={run_cfg.g1_true}, g2={run_cfg.g2_true}, "
         f"seed={run_cfg.seed}"
@@ -145,10 +227,7 @@ def run_bias_realization() -> None:
         json.dump(sim_result.ground_truth, f, indent=2)
     logger.info(f"Ground truth saved to {truth_path}")
 
-    # Stage 1b: Build model and run inference
-    from shine.inference import Inference
-    from shine.scene import SceneBuilder
-
+    # Build model and run inference
     scene_builder = SceneBuilder(shine_config)
     model_fn = scene_builder.build_model()
 
@@ -168,9 +247,81 @@ def run_bias_realization() -> None:
     logger.info(f"Posterior saved to {posterior_path}")
 
     # Save convergence summary
+    diagnostics = extract_convergence_diagnostics(idata)
+    _save_convergence(diagnostics, output_dir)
+
+
+def _run_paired_single(
+    shine_config: ShineConfig,
+    run_cfg: BiasRunConfig,
+    output_dir: Path,
+    args: argparse.Namespace,
+) -> None:
+    """Execute a single paired +g/-g realization.
+
+    Generates both +g and -g observations with the same random ellipticity
+    and noise seed, then runs inference on each separately.
+    """
+    from shine.inference import Inference
+    from shine.scene import SceneBuilder
     from shine.validation.extraction import extract_convergence_diagnostics
 
-    diagnostics = extract_convergence_diagnostics(idata)
+    rng = np.random.default_rng(run_cfg.seed)
+
+    logger.info(
+        f"Generating paired observations: g1={run_cfg.g1_true}, "
+        f"g2={run_cfg.g2_true}, seed={run_cfg.seed}"
+    )
+    plus_result, minus_result = generate_paired_observations(
+        shine_config, run_cfg.g1_true, run_cfg.g2_true,
+        run_cfg.seed, rng=rng,
+    )
+
+    # Run inference for each sign
+    for sign, sim_result in [("plus", plus_result), ("minus", minus_result)]:
+        run_dir = output_dir / f"{run_cfg.run_id}_{sign}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save ground truth with sign metadata
+        truth = dict(sim_result.ground_truth)
+        truth["sign"] = sign
+        truth["pair_id"] = run_cfg.run_id
+        truth["seed"] = run_cfg.seed
+        if args.flux is not None:
+            truth["flux"] = args.flux
+        if args.noise_sigma is not None:
+            truth["noise_sigma"] = args.noise_sigma
+        truth_path = run_dir / "truth.json"
+        with open(truth_path, "w") as f:
+            json.dump(truth, f, indent=2)
+
+        # Build model and run inference
+        scene_builder = SceneBuilder(shine_config)
+        model_fn = scene_builder.build_model()
+
+        rng_key = jax.random.PRNGKey(shine_config.inference.rng_seed)
+        engine = Inference(model=model_fn, config=shine_config.inference)
+
+        logger.info(
+            f"Running {shine_config.inference.method.upper()} inference "
+            f"for {sign} realization..."
+        )
+        idata = engine.run(
+            rng_key=rng_key,
+            observed_data=sim_result.observation.image,
+            extra_args={"psf": sim_result.observation.psf_model},
+        )
+
+        posterior_path = run_dir / "posterior.nc"
+        idata.to_netcdf(str(posterior_path))
+        logger.info(f"Posterior saved to {posterior_path}")
+
+        diagnostics = extract_convergence_diagnostics(idata)
+        _save_convergence(diagnostics, run_dir)
+
+
+def _save_convergence(diagnostics, output_dir: Path) -> None:
+    """Save convergence diagnostics to JSON."""
     conv_dict = {
         "rhat": diagnostics.rhat,
         "ess": diagnostics.ess,
@@ -184,8 +335,6 @@ def run_bias_realization() -> None:
     with open(conv_path, "w") as f:
         json.dump(conv_dict, f, indent=2)
     logger.info(f"Convergence diagnostics saved to {conv_path}")
-
-    logger.info("Stage 1 (run) complete.")
 
 
 def _run_batched(args: argparse.Namespace) -> None:
@@ -355,6 +504,7 @@ def extract_bias_results() -> None:
         sys.exit(0)
 
     results = []
+    truths = []
     for posterior_path in posterior_files:
         run_dir = posterior_path.parent
         run_id = run_dir.name
@@ -383,6 +533,7 @@ def extract_bias_results() -> None:
             thresholds=thresholds,
         )
         results.append(result)
+        truths.append(truth)
         logger.info(
             f"Extracted {run_id}: g1={result.g1.mean:.6f}, g2={result.g2.mean:.6f}, "
             f"convergence={'PASS' if result.passed_convergence else 'FAIL'}"
@@ -396,6 +547,9 @@ def extract_bias_results() -> None:
         "run_id", "g1_true", "g2_true",
         "g1_mean", "g1_median", "g1_std",
         "g2_mean", "g2_median", "g2_std",
+        "g1_p16", "g1_p84", "g2_p16", "g2_p84",
+        "e1_true", "e2_true",
+        "sign", "pair_id", "flux", "noise_sigma",
         "rhat_g1", "rhat_g2", "ess_g1", "ess_g2",
         "divergences", "divergence_frac",
         "passed_convergence", "seed",
@@ -404,7 +558,8 @@ def extract_bias_results() -> None:
     with open(output_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        for r in results:
+        for i, r in enumerate(results):
+            truth = truths[i] if i < len(truths) else {}
             writer.writerow({
                 "run_id": r.run_id,
                 "g1_true": r.g1_true,
@@ -415,6 +570,16 @@ def extract_bias_results() -> None:
                 "g2_mean": r.g2.mean,
                 "g2_median": r.g2.median,
                 "g2_std": r.g2.std,
+                "g1_p16": r.g1.percentiles.get(16.0, ""),
+                "g1_p84": r.g1.percentiles.get(84.0, ""),
+                "g2_p16": r.g2.percentiles.get(16.0, ""),
+                "g2_p84": r.g2.percentiles.get(84.0, ""),
+                "e1_true": truth.get("e1", ""),
+                "e2_true": truth.get("e2", ""),
+                "sign": truth.get("sign", ""),
+                "pair_id": truth.get("pair_id", ""),
+                "flux": truth.get("flux", ""),
+                "noise_sigma": truth.get("noise_sigma", ""),
                 "rhat_g1": r.diagnostics.rhat.get("g1", ""),
                 "rhat_g2": r.diagnostics.rhat.get("g2", ""),
                 "ess_g1": r.diagnostics.ess.get("g1", ""),
@@ -528,6 +693,17 @@ def compute_bias_statistics() -> None:
             max_posterior_width=0.01,
             max_abs_m=0.01,
         )
+    elif level == BiasLevel.level_1:
+        # Level 1 defaults: noise bias acceptance
+        acceptance = AcceptanceCriteria(
+            max_offset_sigma=3.0,
+            max_abs_m=0.01,
+            max_abs_c=0.0005,
+            coverage_levels=[0.68, 0.95],
+            coverage_tolerance=0.03,
+            sbc_ks_pvalue_min=0.01,
+            snr_threshold=20.0,
+        )
     else:
         acceptance = AcceptanceCriteria()
 
@@ -557,7 +733,25 @@ def compute_bias_statistics() -> None:
         logger.error("No converged realizations — cannot compute bias")
         sys.exit(1)
 
-    # Compute bias for each row
+    if level == BiasLevel.level_1:
+        _compute_level1_statistics(
+            converged, rows, acceptance, output_dir, args,
+        )
+    else:
+        _compute_level0_statistics(
+            converged, rows, level, acceptance, output_dir, args,
+        )
+
+
+def _compute_level0_statistics(
+    converged: list,
+    rows: list,
+    level: BiasLevel,
+    acceptance: AcceptanceCriteria,
+    output_dir: Path,
+    args: argparse.Namespace,
+) -> None:
+    """Level 0 statistics: per-row bias, offset, and width checks."""
     bias_results = {"g1": [], "g2": []}
     all_passed = True
 
@@ -591,27 +785,26 @@ def compute_bias_statistics() -> None:
                     all_passed = False
 
         # Compute m, c for non-zero shear
-        if level == BiasLevel.level_0:
-            for comp, true, mean, std in [
-                ("g1", g1_true, g1_mean, g1_std),
-                ("g2", g2_true, g2_mean, g2_std),
-            ]:
-                if true != 0.0:
-                    br = compute_bias_single_point(true, mean, std, comp)
-                    bias_results[comp].append({
-                        "run_id": row["run_id"],
-                        "m": br.m,
-                        "m_err": br.m_err,
-                        "c": br.c,
-                        "c_err": br.c_err,
-                    })
+        for comp, true, mean, std in [
+            ("g1", g1_true, g1_mean, g1_std),
+            ("g2", g2_true, g2_mean, g2_std),
+        ]:
+            if true != 0.0:
+                br = compute_bias_single_point(true, mean, std, comp)
+                bias_results[comp].append({
+                    "run_id": row["run_id"],
+                    "m": br.m,
+                    "m_err": br.m_err,
+                    "c": br.c,
+                    "c_err": br.c_err,
+                })
 
-                    if acceptance.max_abs_m is not None and abs(br.m) > acceptance.max_abs_m:
-                        logger.warning(
-                            f"{row['run_id']}: |m_{comp}| = {abs(br.m):.6f} "
-                            f"exceeds {acceptance.max_abs_m}"
-                        )
-                        all_passed = False
+                if acceptance.max_abs_m is not None and abs(br.m) > acceptance.max_abs_m:
+                    logger.warning(
+                        f"{row['run_id']}: |m_{comp}| = {abs(br.m):.6f} "
+                        f"exceeds {acceptance.max_abs_m}"
+                    )
+                    all_passed = False
 
     # Generate plots if posterior directory provided
     if args.posterior_dir:
@@ -629,11 +822,248 @@ def compute_bias_statistics() -> None:
                     str(plot_dir),
                 )
 
+    _write_results_json(
+        output_dir, BiasLevel.level_0, len(rows), len(converged),
+        bias_results, all_passed,
+    )
+
+
+def _compute_level1_statistics(
+    converged: list,
+    rows: list,
+    acceptance: AcceptanceCriteria,
+    output_dir: Path,
+    args: argparse.Namespace,
+) -> None:
+    """Level 1 statistics: paired response, regression, coverage, SBC."""
+    all_passed = True
+    bias_results = {"g1": [], "g2": []}
+    coverage_results_out = []
+    sbc_results_out = []
+
+    # Group rows by (flux, noise_sigma) grid point
+    groups: dict[tuple, list] = {}
+    for row in converged:
+        flux = row.get("flux", "")
+        noise_sigma = row.get("noise_sigma", "")
+        key = (flux, noise_sigma)
+        groups.setdefault(key, []).append(row)
+
+    for grid_key, grid_rows in groups.items():
+        flux_key, noise_key = grid_key
+        logger.info(
+            f"Processing grid point: flux={flux_key}, noise_sigma={noise_key} "
+            f"({len(grid_rows)} rows)"
+        )
+
+        # Match plus/minus pairs
+        plus_rows = {}
+        minus_rows = {}
+        for row in grid_rows:
+            pair_id = row.get("pair_id", "")
+            sign = row.get("sign", "")
+            if sign == "plus":
+                plus_rows[pair_id] = row
+            elif sign == "minus":
+                minus_rows[pair_id] = row
+
+        # For each shear component, compute paired response and regression
+        for comp in ["g1", "g2"]:
+            # Group by g_true for regression
+            shear_groups: dict[float, list[tuple]] = {}
+            for pair_id in plus_rows:
+                if pair_id not in minus_rows:
+                    continue
+                p_row = plus_rows[pair_id]
+                m_row = minus_rows[pair_id]
+                g_true = abs(float(p_row[f"{comp}_true"]))
+                if g_true == 0.0:
+                    continue
+                shear_groups.setdefault(g_true, []).append((p_row, m_row))
+
+            if not shear_groups:
+                logger.warning(f"No paired data for {comp} at grid point {grid_key}")
+                continue
+
+            # Compute paired response per shear point and aggregate
+            g_true_pts = []
+            g_est_pts = []
+            g_std_pts = []
+            for g_true, pairs in sorted(shear_groups.items()):
+                plus_means = np.array([float(p[f"{comp}_mean"]) for p, m in pairs])
+                minus_means = np.array([float(m[f"{comp}_mean"]) for p, m in pairs])
+                responses = compute_paired_response(
+                    plus_means, minus_means, g_true, component=comp
+                )
+                # Mean response -> multiplicative bias estimate at this point
+                mean_response = float(np.mean(responses))
+                std_response = float(np.std(responses) / np.sqrt(len(responses)))
+                g_true_pts.append(g_true)
+                g_est_pts.append(mean_response * g_true)
+                g_std_pts.append(std_response * g_true)
+
+            g_true_arr = np.array(g_true_pts)
+            g_est_arr = np.array(g_est_pts)
+            g_std_arr = np.array(g_std_pts)
+
+            # Regression if enough points
+            if len(g_true_arr) >= 2:
+                weights = 1.0 / np.maximum(g_std_arr**2, 1e-20)
+                br = compute_bias_regression(
+                    g_true_arr, g_est_arr, weights=weights, component=comp,
+                )
+                bias_results[comp].append({
+                    "flux": flux_key,
+                    "noise_sigma": noise_key,
+                    "m": br.m,
+                    "m_err": br.m_err,
+                    "c": br.c,
+                    "c_err": br.c_err,
+                })
+
+                # Check acceptance
+                if acceptance.max_abs_m is not None and abs(br.m) > acceptance.max_abs_m:
+                    logger.warning(
+                        f"Grid ({flux_key}, {noise_key}) {comp}: "
+                        f"|m| = {abs(br.m):.6f} exceeds {acceptance.max_abs_m}"
+                    )
+                    all_passed = False
+                if acceptance.max_abs_c is not None and abs(br.c) > acceptance.max_abs_c:
+                    logger.warning(
+                        f"Grid ({flux_key}, {noise_key}) {comp}: "
+                        f"|c| = {abs(br.c):.6f} exceeds {acceptance.max_abs_c}"
+                    )
+                    all_passed = False
+
+                # Plot bias vs shear
+                plot_dir = output_dir / "plots" / f"flux{flux_key}_noise{noise_key}"
+                plot_bias_vs_shear(
+                    g_true_arr, g_est_arr, g_std_arr,
+                    comp, str(plot_dir), m=br.m, c=br.c,
+                )
+
+        # Coverage check using all rows at this grid point
+        for comp in ["g1", "g2"]:
+            comp_rows = [r for r in grid_rows if r.get(f"{comp}_std", "")]
+            if not comp_rows:
+                continue
+            g_trues = np.array([float(r[f"{comp}_true"]) for r in comp_rows])
+            g_means = np.array([float(r[f"{comp}_mean"]) for r in comp_rows])
+            g_stds = np.array([float(r[f"{comp}_std"]) for r in comp_rows])
+
+            cov_results = compute_coverage(
+                g_trues, g_means, g_stds,
+                alpha_levels=acceptance.coverage_levels,
+            )
+            for cr in cov_results:
+                expected = cr.alpha
+                tol = acceptance.coverage_tolerance
+                if abs(cr.observed - expected) > tol:
+                    logger.warning(
+                        f"Grid ({flux_key}, {noise_key}) {comp}: "
+                        f"coverage({cr.alpha:.0%}) = {cr.observed:.4f}, "
+                        f"expected {expected:.4f} +/- {tol}"
+                    )
+                    all_passed = False
+                coverage_results_out.append({
+                    "flux": flux_key,
+                    "noise_sigma": noise_key,
+                    "component": comp,
+                    "alpha": cr.alpha,
+                    "observed": cr.observed,
+                    "n_total": cr.n_total,
+                    "n_covered": cr.n_covered,
+                })
+
+            # Coverage plot
+            plot_dir = output_dir / "plots" / f"flux{flux_key}_noise{noise_key}"
+            plot_coverage(
+                [cr.alpha for cr in cov_results],
+                [cr.observed for cr in cov_results],
+                str(plot_dir),
+                n_realizations=len(comp_rows),
+            )
+
+        # SBC ranks if posterior directory provided
+        if args.posterior_dir:
+            posterior_dir = Path(args.posterior_dir)
+            for comp in ["g1", "g2"]:
+                comp_rows = [r for r in grid_rows if r.get(f"{comp}_std", "")]
+                if len(comp_rows) < 10:
+                    continue
+                g_trues = []
+                all_samples = []
+                for row in comp_rows:
+                    run_id = row["run_id"]
+                    posterior_path = posterior_dir / run_id / "posterior.nc"
+                    if not posterior_path.exists():
+                        continue
+                    idata = az.from_netcdf(str(posterior_path))
+                    samples = idata.posterior[comp].values.flatten()
+                    g_trues.append(float(row[f"{comp}_true"]))
+                    all_samples.append(samples)
+
+                if len(g_trues) >= 10:
+                    # Truncate to minimum sample length
+                    min_len = min(len(s) for s in all_samples)
+                    samples_arr = np.array([s[:min_len] for s in all_samples])
+                    sbc_result = compute_sbc_ranks(
+                        np.array(g_trues), samples_arr, comp,
+                    )
+                    sbc_results_out.append({
+                        "flux": flux_key,
+                        "noise_sigma": noise_key,
+                        "component": comp,
+                        "ks_pvalue": sbc_result.ks_pvalue,
+                    })
+
+                    if sbc_result.ks_pvalue < acceptance.sbc_ks_pvalue_min:
+                        logger.warning(
+                            f"Grid ({flux_key}, {noise_key}) {comp}: "
+                            f"SBC KS p-value = {sbc_result.ks_pvalue:.4f} "
+                            f"< {acceptance.sbc_ks_pvalue_min}"
+                        )
+                        all_passed = False
+
+                    plot_dir = output_dir / "plots" / f"flux{flux_key}_noise{noise_key}"
+                    plot_sbc_histogram(
+                        sbc_result.ranks, comp, str(plot_dir),
+                    )
+
     # Write results JSON
     results_dict = {
-        "level": level.value,
+        "level": BiasLevel.level_1.value,
         "n_realizations": len(rows),
         "n_converged": len(converged),
+        "bias_g1": bias_results["g1"],
+        "bias_g2": bias_results["g2"],
+        "coverage": coverage_results_out,
+        "sbc": sbc_results_out,
+        "overall_passed": all_passed,
+    }
+
+    results_path = output_dir / "bias_results.json"
+    with open(results_path, "w") as f:
+        json.dump(results_dict, f, indent=2)
+
+    logger.info(f"Bias results saved to {results_path}")
+    logger.info(f"Overall passed: {all_passed}")
+    logger.info("Stage 3 (stats) complete.")
+
+
+def _write_results_json(
+    output_dir: Path,
+    level: BiasLevel,
+    n_realizations: int,
+    n_converged: int,
+    bias_results: dict,
+    all_passed: bool,
+) -> None:
+    """Write the results JSON file for Level 0."""
+    results_dict = {
+        "level": level.value,
+        "n_realizations": n_realizations,
+        "n_converged": n_converged,
         "bias_g1": bias_results["g1"],
         "bias_g2": bias_results["g2"],
         "overall_passed": all_passed,

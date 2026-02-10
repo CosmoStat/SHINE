@@ -1,0 +1,32 @@
+# Level 1 bias test campaign config
+# Noise bias measurement with flux/noise parameter sweep.
+
+level: level_1
+shine_config_path: configs/validation/level1_base.yaml
+
+shear_grid:
+  values: [0.01, 0.02, 0.05]
+
+n_realizations: 1000
+paired: true
+
+flux_noise_grid:
+  flux_values: [100.0, 500.0, 1000.0, 5000.0]
+  noise_values: [0.01, 0.1, 0.5, 1.0]
+
+convergence:
+  rhat_max: 1.05
+  ess_min: 100
+  divergence_frac_max: 0.01
+  bfmi_min: 0.3
+
+acceptance:
+  max_offset_sigma: 3.0
+  max_abs_m: 0.01
+  max_abs_c: 0.0005
+  coverage_levels: [0.68, 0.95]
+  coverage_tolerance: 0.03
+  sbc_ks_pvalue_min: 0.01
+  snr_threshold: 20.0
+
+output_dir: results/validation/level1

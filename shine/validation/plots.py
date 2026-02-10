@@ -301,19 +301,53 @@ def plot_bias_vs_shear(
 
     Returns:
         Path to saved plot.
-
-    Raises:
-        NotImplementedError: This function is a stub for Level 1+.
     """
-    raise NotImplementedError(
-        "plot_bias_vs_shear() is planned for Level 1+."
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    fig, ax = plt.subplots(1, 1, figsize=(7, 6))
+
+    ax.errorbar(
+        g_true_values, g_est_means, yerr=g_est_stds,
+        fmt="o", color="steelblue", ecolor="gray", capsize=3, label="Estimates",
     )
+
+    xlim = ax.get_xlim()
+    x_line = np.linspace(xlim[0], xlim[1], 100)
+    ax.plot(x_line, x_line, ls="--", color="gray", lw=1.5, label="1:1")
+
+    if m is not None and c is not None:
+        y_reg = (1 + m) * x_line + c
+        ax.plot(x_line, y_reg, ls="-", color="red", lw=2, label="Fit")
+        ax.text(
+            0.05, 0.95,
+            f"m = {m:.4e}\nc = {c:.4e}",
+            transform=ax.transAxes, fontsize=10,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+        )
+
+    ax.set(
+        xlabel=f"True shear {component}",
+        ylabel=f"Estimated shear {component}",
+        title=f"Bias: {component}",
+    )
+    ax.legend()
+    fig.tight_layout()
+
+    plot_path = output_path / f"bias_vs_shear_{component}.png"
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+    logger.info(f"Saved bias vs shear plot to {plot_path}")
+
+    return plot_path
 
 
 def plot_coverage(
     alpha_levels: List[float],
     observed_coverage: List[float],
     output_dir: str,
+    n_realizations: int = 1000,
 ) -> Path:
     """Plot observed vs expected coverage.
 
@@ -321,22 +355,52 @@ def plot_coverage(
         alpha_levels: Expected coverage levels.
         observed_coverage: Observed coverage fractions.
         output_dir: Directory to save plot.
+        n_realizations: Number of realizations used (for confidence bands).
 
     Returns:
         Path to saved plot.
-
-    Raises:
-        NotImplementedError: This function is a stub for Level 1+.
     """
-    raise NotImplementedError(
-        "plot_coverage() is planned for Level 1+."
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    alpha = np.asarray(alpha_levels)
+    obs = np.asarray(observed_coverage)
+
+    fig, ax = plt.subplots(1, 1, figsize=(7, 6))
+
+    ax.plot([0, 1], [0, 1], ls="--", color="gray", lw=1.5, label="Perfect calibration")
+
+    sigma = 3 * np.sqrt(alpha * (1 - alpha) / n_realizations)
+    ax.fill_between(
+        alpha, alpha - sigma, alpha + sigma,
+        alpha=0.2, color="gray", label="3-sigma band",
     )
+
+    ax.plot(alpha, obs, "o-", color="steelblue", lw=2, label="Observed")
+
+    ax.set(
+        xlabel="Expected coverage",
+        ylabel="Observed coverage",
+        title="Coverage calibration",
+        xlim=(0, 1),
+        ylim=(0, 1),
+    )
+    ax.legend()
+    fig.tight_layout()
+
+    plot_path = output_path / "coverage.png"
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+    logger.info(f"Saved coverage plot to {plot_path}")
+
+    return plot_path
 
 
 def plot_sbc_histogram(
     ranks: np.ndarray,
     param: str,
     output_dir: str,
+    n_bins: int = 20,
 ) -> Path:
     """Plot SBC rank histogram.
 
@@ -344,13 +408,40 @@ def plot_sbc_histogram(
         ranks: Array of rank statistics.
         param: Parameter name.
         output_dir: Directory to save plot.
+        n_bins: Number of histogram bins.
 
     Returns:
         Path to saved plot.
-
-    Raises:
-        NotImplementedError: This function is a stub for Level 1+.
     """
-    raise NotImplementedError(
-        "plot_sbc_histogram() is planned for Level 1+."
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    n_realizations = len(ranks)
+    expected = n_realizations / n_bins
+
+    fig, ax = plt.subplots(1, 1, figsize=(7, 5))
+
+    ax.hist(ranks, bins=n_bins, color="steelblue", edgecolor="black", alpha=0.7)
+
+    ax.axhline(expected, color="red", ls="--", lw=2, label="Expected")
+    ax.fill_between(
+        ax.get_xlim(),
+        expected - 3 * np.sqrt(expected),
+        expected + 3 * np.sqrt(expected),
+        alpha=0.2, color="red", label="3-sigma band",
     )
+
+    ax.set(
+        xlabel="Rank",
+        ylabel="Count",
+        title=f"SBC rank histogram: {param}",
+    )
+    ax.legend()
+    fig.tight_layout()
+
+    plot_path = output_path / f"sbc_histogram_{param}.png"
+    fig.savefig(plot_path, dpi=150)
+    plt.close(fig)
+    logger.info(f"Saved SBC histogram to {plot_path}")
+
+    return plot_path

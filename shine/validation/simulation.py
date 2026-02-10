@@ -2,14 +2,35 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import jax.numpy as jnp
+import numpy as np
 
 from shine.config import ShineConfig
 from shine.data import DataLoader, Observation, get_mean
 
 logger = logging.getLogger(__name__)
+
+
+def draw_ellipticity(
+    config: ShineConfig,
+    rng: np.random.Generator,
+) -> Tuple[float, float]:
+    """Rejection-sample intrinsic ellipticity from Normal(0, 0.2) with |e| < 0.7.
+
+    Args:
+        config: SHINE configuration object (reserved for future extension).
+        rng: NumPy random Generator for reproducible sampling.
+
+    Returns:
+        Tuple (e1, e2) with sqrt(e1^2 + e2^2) < 0.7.
+    """
+    while True:
+        e1 = rng.normal(0.0, 0.2)
+        e2 = rng.normal(0.0, 0.2)
+        if np.sqrt(e1**2 + e2**2) < 0.7:
+            return float(e1), float(e2)
 
 
 @dataclass
@@ -30,6 +51,8 @@ def generate_biased_observation(
     g1_true: float,
     g2_true: float,
     seed: int,
+    e1_true: Optional[float] = None,
+    e2_true: Optional[float] = None,
 ) -> SimulationResult:
     """Generate a synthetic observation with explicit shear overrides.
 
@@ -38,6 +61,8 @@ def generate_biased_observation(
         g1_true: True g1 shear value.
         g2_true: True g2 shear value.
         seed: Random seed for noise generation.
+        e1_true: Optional true e1 ellipticity override.
+        e2_true: Optional true e2 ellipticity override.
 
     Returns:
         SimulationResult containing the observation and ground truth dict.
@@ -47,14 +72,20 @@ def generate_biased_observation(
         g1_true=g1_true,
         g2_true=g2_true,
         noise_seed=seed,
+        e1_true=e1_true,
+        e2_true=e2_true,
     )
 
     # Build ground truth dict from config + overrides
-    e1 = 0.0
-    e2 = 0.0
-    if config.gal.ellipticity is not None:
-        e1 = get_mean(config.gal.ellipticity.e1)
-        e2 = get_mean(config.gal.ellipticity.e2)
+    if e1_true is not None and e2_true is not None:
+        e1 = e1_true
+        e2 = e2_true
+    else:
+        e1 = 0.0
+        e2 = 0.0
+        if config.gal.ellipticity is not None:
+            e1 = get_mean(config.gal.ellipticity.e1)
+            e2 = get_mean(config.gal.ellipticity.e2)
 
     ground_truth = {
         "g1": g1_true,
@@ -77,6 +108,9 @@ def generate_paired_observations(
     g1_true: float,
     g2_true: float,
     seed: int,
+    e1_true: Optional[float] = None,
+    e2_true: Optional[float] = None,
+    rng: Optional[np.random.Generator] = None,
 ) -> Tuple[SimulationResult, SimulationResult]:
     """Generate paired +g/-g observations with the same noise seed.
 
@@ -88,12 +122,28 @@ def generate_paired_observations(
         g1_true: Positive g1 shear value.
         g2_true: Positive g2 shear value.
         seed: Random seed for noise generation (same for both).
+        e1_true: Optional true e1 ellipticity override.
+        e2_true: Optional true e2 ellipticity override.
+        rng: Optional NumPy random Generator. When provided and e1_true/e2_true
+            are not set, draws random ellipticity via draw_ellipticity().
 
     Returns:
         Tuple of (plus_result, minus_result) SimulationResults.
     """
-    plus_result = generate_biased_observation(config, g1_true, g2_true, seed)
-    minus_result = generate_biased_observation(config, -g1_true, -g2_true, seed)
+    # Draw random ellipticity if rng provided and no explicit values given
+    if e1_true is None and e2_true is None and rng is not None:
+        e1_true, e2_true = draw_ellipticity(config, rng)
+
+    logger.info(
+        f"Ellipticity for pair: e1={e1_true}, e2={e2_true}"
+    )
+
+    plus_result = generate_biased_observation(
+        config, g1_true, g2_true, seed, e1_true=e1_true, e2_true=e2_true
+    )
+    minus_result = generate_biased_observation(
+        config, -g1_true, -g2_true, seed, e1_true=e1_true, e2_true=e2_true
+    )
 
     logger.info(
         f"Generated paired observations: +g=({g1_true:.4f}, {g2_true:.4f}), "

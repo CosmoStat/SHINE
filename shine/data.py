@@ -116,6 +116,8 @@ class DataLoader:
         config: ShineConfig,
         g1_true: Optional[float] = None,
         g2_true: Optional[float] = None,
+        e1_true: Optional[float] = None,
+        e2_true: Optional[float] = None,
         noise_seed: Optional[int] = None,
     ) -> Observation:
         """Generate synthetic galaxy observations using GalSim.
@@ -129,6 +131,8 @@ class DataLoader:
             config: SHINE configuration object containing simulation parameters.
             g1_true: If provided, overrides the g1 shear from config.
             g2_true: If provided, overrides the g2 shear from config.
+            e1_true: If provided, overrides the e1 ellipticity from config.
+            e2_true: If provided, overrides the e2 ellipticity from config.
             noise_seed: If provided, overrides config.inference.rng_seed for noise RNG.
 
         Returns:
@@ -155,13 +159,17 @@ class DataLoader:
         if gal_hlr <= 0:
             raise ValueError(f"Galaxy half-light radius must be positive, got {gal_hlr}")
 
-        # Intrinsic ellipticity
+        # Intrinsic ellipticity — use overrides if provided
         e1 = 0.0
         e2 = 0.0
-        if config.gal.ellipticity is not None:
+        if e1_true is not None or e2_true is not None:
+            e1 = e1_true if e1_true is not None else 0.0
+            e2 = e2_true if e2_true is not None else 0.0
+        elif config.gal.ellipticity is not None:
             e1 = get_mean(config.gal.ellipticity.e1)
             e2 = get_mean(config.gal.ellipticity.e2)
-            e_mag = (e1**2 + e2**2) ** 0.5
+        e_mag = (e1**2 + e2**2) ** 0.5
+        if e_mag > 0:
             _validate_magnitude(e_mag, 1.0, "Ellipticity", f"(e1={e1}, e2={e2})")
 
         # Shear — use overrides if provided, otherwise extract from config
