@@ -31,6 +31,7 @@ dependencies = [
     "pyyaml>=6.0",
     "arviz>=0.17.0",
     "matplotlib>=3.7.0",
+    "astropy>=5.0",
 ]
 
 [project.optional-dependencies]
@@ -60,7 +61,7 @@ Repository = "https://github.com/CosmoStat/SHINE"
 Issues = "https://github.com/CosmoStat/SHINE/issues"
 
 [tool.setuptools]
-packages = ["shine", "shine.validation"]
+packages = ["shine", "shine.validation", "shine.euclid"]
 
 [tool.setuptools_scm]
 write_to = "shine/_version.py"

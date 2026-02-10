@@ -1,0 +1,45 @@
+# Euclid VIS multi-exposure shear inference — NGC 6505 test data
+#
+# Points to the bundled test data in data/EUC_VIS_SWL/.
+# Selects the 10 brightest sources and runs MAP inference for quick testing.
+
+data:
+  exposure_paths:
+    - data/EUC_VIS_SWL/EUC_VIS_SWL-DET-002704-00-1-0000000__20241017T042756.626122Z_3-4-F.fits.gz
+    - data/EUC_VIS_SWL/EUC_VIS_SWL-DET-002704-01-1-0000000__20241017T042805.678587Z_3-4-F.fits.gz
+    - data/EUC_VIS_SWL/EUC_VIS_SWL-DET-002704-02-1-0000000__20241017T042754.590559Z_3-4-F.fits.gz
+  psf_path: data/EUC_VIS_SWL/PSF_3-4-F.fits.gz
+  catalog_path: data/EUC_VIS_SWL/catalogue_3-4-F.fits.gz
+  background_paths:
+    - data/EUC_VIS_SWL/EUC_VIS_SWL-BKG-002704-00-1-0000000__20241017T042756.626186Z_3-4-F.fits.gz
+    - data/EUC_VIS_SWL/EUC_VIS_SWL-BKG-002704-01-1-0000000__20241017T042805.678757Z_3-4-F.fits.gz
+    - data/EUC_VIS_SWL/EUC_VIS_SWL-BKG-002704-02-1-0000000__20241017T042754.590644Z_3-4-F.fits.gz
+  quadrant: "3-4.F"
+  pixel_scale: 0.1
+
+sources:
+  min_snr: 50.0
+  require_vis_detected: true
+  exclude_spurious: true
+  exclude_deblended: false
+  max_sources: 10
+
+priors:
+  shear_prior_sigma: 0.05
+  flux_prior_log_sigma: 0.5
+  hlr_prior_log_sigma: 0.3
+  ellipticity_prior_sigma: 0.3
+  position_prior_sigma: 0.05
+
+inference:
+  method: map
+  map_config:
+    enabled: true
+    num_steps: 500
+    learning_rate: 0.01
+  rng_seed: 42
+
+galaxy_stamp_size: 64
+fft_size: 128
+background: fixed
+output_dir: results/euclid
