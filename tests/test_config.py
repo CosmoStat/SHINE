@@ -292,7 +292,7 @@ class TestInferenceConfig:
             InferenceConfig(method="invalid")
 
     def test_inference_config_no_method_defaults_to_nuts(self):
-        """Test backward compatibility: no method field defaults to nuts."""
+        """Test that no method field defaults to nuts."""
         config = InferenceConfig(rng_seed=42)
         assert config.method == "nuts"
 
@@ -405,3 +405,4 @@ class TestConfigHandler:
             assert config.gal.half_light_radius.min == 0.5
         finally:
             Path(tmp_path).unlink()
+
