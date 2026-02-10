@@ -21,6 +21,8 @@ __all__ = [
     "EuclidDataLoader",
     "ExposureSet",
     "MultiExposureScene",
+    "render_model_images",
+    "plot_exposure_comparison",
 ]
 
 
@@ -42,9 +44,18 @@ def __getattr__(name: str):
         }
         return _lazy[name]
 
-    if name == "MultiExposureScene":
-        from shine.euclid.scene import MultiExposureScene
+    if name in ("MultiExposureScene", "render_model_images"):
+        from shine.euclid.scene import MultiExposureScene, render_model_images
 
-        return MultiExposureScene
+        _lazy = {
+            "MultiExposureScene": MultiExposureScene,
+            "render_model_images": render_model_images,
+        }
+        return _lazy[name]
+
+    if name == "plot_exposure_comparison":
+        from shine.euclid.plots import plot_exposure_comparison
+
+        return plot_exposure_comparison
 
     raise AttributeError(f"module 'shine.euclid' has no attribute {name!r}")

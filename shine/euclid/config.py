@@ -22,8 +22,13 @@ class EuclidDataConfig(BaseModel):
             (e.g., from NoiseChisel).
         quadrant: CCD quadrant identifier (default "3-4.F").
         pixel_scale: Pixel scale in arcsec/pixel (default 0.1).
-        bad_pixel_mask: Bitmask of defective-pixel flags to exclude
-            (default 0x01EAF5FF).
+        bad_pixel_mask: Bitmask of defective-pixel flags to exclude.
+            Default ``0x1`` matches the ``INVALID`` convenience bit
+            (bit 0) from the VIS flag map, which is the OR of HOT,
+            COLD, SAT, COSMIC, GHOST, CHARINJ, SATXTALKGHOST, ADCMAX,
+            and other flags that mark pixels whose values should not be
+            used. See the `VIS Flag Map DPDD
+            <https://euclid.esac.esa.int/msp/dpdd/v1.1/visdpd/dpcards/vis_flagmap.html>`_.
     """
 
     exposure_paths: List[str]
@@ -32,7 +37,7 @@ class EuclidDataConfig(BaseModel):
     background_paths: Optional[List[str]] = None
     quadrant: str = "3-4.F"
     pixel_scale: float = 0.1
-    bad_pixel_mask: int = 0x01EAF5FF
+    bad_pixel_mask: int = 0x1
 
     @field_validator("pixel_scale")
     @classmethod
@@ -58,7 +63,7 @@ class SourceSelectionConfig(BaseModel):
 
     Controls which sources from the Euclid catalog are included in
     the inference. Sources can be filtered by signal-to-noise ratio,
-    detection flags, and blending status.
+    detection flags, blending status, and morphological classification.
 
     Attributes:
         min_snr: Minimum signal-to-noise ratio for source inclusion
@@ -69,6 +74,16 @@ class SourceSelectionConfig(BaseModel):
             (default True).
         exclude_deblended: Exclude deblended sources. False by default
             because SHINE can model blended sources jointly.
+        exclude_point_sources: Exclude sources classified as point-like
+            (stars). Uses the ``point_like_flag`` column from the MER
+            catalogue (default True).
+        det_quality_exclude_mask: Bitmask of ``det_quality_flag`` bits
+            that trigger source exclusion.  Default ``0x78C`` excludes
+            saturated (bit 3), border (bit 4), VIS bright-star mask
+            (bit 8), NIR bright-star mask (bit 9), extended-object area
+            (bit 10), and deblending-skipped (bit 11).  Bits 1
+            (neighbor contamination) and 2 (blended) are kept because
+            SHINE can handle these.  Set to 0 to disable.
         max_sources: Maximum number of sources to process. None means
             no limit.
     """
@@ -77,6 +92,8 @@ class SourceSelectionConfig(BaseModel):
     require_vis_detected: bool = True
     exclude_spurious: bool = True
     exclude_deblended: bool = False
+    exclude_point_sources: bool = True
+    det_quality_exclude_mask: int = 0x78C
     max_sources: Optional[int] = None
 
     @field_validator("min_snr")
@@ -178,10 +195,10 @@ class EuclidInferenceConfig(BaseModel):
         sources: Source selection and filtering criteria.
         priors: Prior distribution parameters.
         inference: Base SHINE inference configuration (NUTS/MAP/VI).
-        galaxy_stamp_size: Side length in pixels of the internal rendering
-            stamp for each galaxy (default 64).
-        fft_size: FFT grid size for convolution, must be a power of 2
-            (default 128).
+        galaxy_stamp_sizes: Available rendering stamp tiers in pixels,
+            sorted ascending (default ``[64, 128, 256]``).  Each source
+            is assigned the smallest tier whose stamp can contain its
+            light profile.  The FFT size for each tier is ``2 * stamp``.
         background: Background estimation strategy: "fit" estimates
             background jointly, "median" uses the median of the image,
             "fixed" uses a provided background map (default "median").
@@ -193,45 +210,34 @@ class EuclidInferenceConfig(BaseModel):
     sources: SourceSelectionConfig = SourceSelectionConfig()
     priors: PriorConfig = PriorConfig()
     inference: InferenceConfig = InferenceConfig()
-    galaxy_stamp_size: int = 64
-    fft_size: int = 128
+    galaxy_stamp_sizes: List[int] = [64, 128, 256]
     background: Literal["fit", "median", "fixed"] = "median"
     output_dir: str = "results/euclid"
 
-    @field_validator("galaxy_stamp_size")
+    @field_validator("galaxy_stamp_sizes")
     @classmethod
-    def validate_stamp_size(cls, v: int) -> int:
-        """Validate that galaxy stamp size is positive.
+    def validate_stamp_sizes(cls, v: List[int]) -> List[int]:
+        """Validate that stamp sizes are positive and sorted ascending.
 
         Args:
-            v: Stamp size value to validate.
+            v: List of stamp sizes to validate.
 
         Returns:
-            The validated stamp size.
+            The validated stamp sizes.
 
         Raises:
-            ValueError: If stamp size is not positive.
+            ValueError: If list is empty, sizes are not positive, or
+                not sorted ascending.
         """
-        if v <= 0:
-            raise ValueError(f"galaxy_stamp_size must be positive, got {v}")
-        return v
-
-    @field_validator("fft_size")
-    @classmethod
-    def validate_fft_size(cls, v: int) -> int:
-        """Validate that FFT size is a positive power of 2.
-
-        Args:
-            v: FFT size value to validate.
-
-        Returns:
-            The validated FFT size.
-
-        Raises:
-            ValueError: If FFT size is not positive or not a power of 2.
-        """
-        if v <= 0:
-            raise ValueError(f"fft_size must be positive, got {v}")
-        if v & (v - 1) != 0:
-            raise ValueError(f"fft_size must be a power of 2, got {v}")
+        if not v:
+            raise ValueError("galaxy_stamp_sizes must not be empty")
+        for s in v:
+            if s <= 0:
+                raise ValueError(
+                    f"All stamp sizes must be positive, got {s}"
+                )
+        if v != sorted(v):
+            raise ValueError(
+                f"galaxy_stamp_sizes must be sorted ascending, got {v}"
+            )
         return v

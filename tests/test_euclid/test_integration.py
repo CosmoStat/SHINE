@@ -50,7 +50,9 @@ def small_config():
             catalog_path=str(DATA_DIR / "catalogue_3-4-F.fits.gz"),
             background_paths=bkg_paths,
         ),
-        sources=SourceSelectionConfig(max_sources=3, min_snr=50.0),
+        sources=SourceSelectionConfig(
+            max_sources=3, min_snr=50.0, exclude_point_sources=False
+        ),
         inference=InferenceConfig(
             method="map",
             map_config=MAPConfig(enabled=True, num_steps=50),

@@ -37,6 +37,7 @@ class Inference:
         observed_data: jnp.ndarray,
         extra_args: Optional[Dict[str, Any]] = None,
         map_config: Optional[MAPConfig] = None,
+        init_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Run MAP estimation to find maximum a posteriori parameters.
 
@@ -45,6 +46,12 @@ class Inference:
             observed_data: Observed image data.
             extra_args: Extra keyword arguments passed to the model (e.g., psf).
             map_config: MAP configuration (defaults to MAPConfig() if None).
+            init_params: Optional dictionary of initial parameter values.
+                When provided, ``init_to_value`` is used instead of the
+                default ``init_to_feasible`` strategy.  This is useful
+                for models whose forward pass can produce NaN at random
+                initial points (e.g. galaxy renderers with ellipticity
+                constraints).
 
         Returns:
             Dictionary of MAP parameter estimates.
@@ -54,7 +61,12 @@ class Inference:
         if map_config is None:
             map_config = MAPConfig()
 
-        guide = AutoDelta(self.model)
+        if init_params is not None:
+            init_loc_fn = numpyro.infer.init_to_value(values=init_params)
+        else:
+            init_loc_fn = numpyro.infer.init_to_feasible()
+
+        guide = AutoDelta(self.model, init_loc_fn=init_loc_fn)
         optimizer = numpyro.optim.Adam(step_size=map_config.learning_rate)
         svi = SVI(self.model, guide, optimizer, loss=Trace_ELBO())
 
@@ -197,6 +209,7 @@ class Inference:
         rng_key: jax.random.PRNGKey,
         observed_data: jnp.ndarray,
         extra_args: Optional[Dict[str, Any]] = None,
+        init_params: Optional[Dict[str, Any]] = None,
     ) -> az.InferenceData:
         """Run inference pipeline, dispatching on the configured method.
 
@@ -204,6 +217,8 @@ class Inference:
             rng_key: JAX random key.
             observed_data: Observed image data.
             extra_args: Extra keyword arguments passed to the model (e.g., psf).
+            init_params: Optional initial parameter values for MAP estimation.
+                Forwarded to :meth:`run_map` when ``method="map"``.
 
         Returns:
             ArviZ InferenceData object with posterior samples/estimates.
@@ -212,7 +227,9 @@ class Inference:
 
         if method == "map":
             map_cfg = self.config.map_config or MAPConfig()
-            estimates = self.run_map(rng_key, observed_data, extra_args, map_cfg)
+            estimates = self.run_map(
+                rng_key, observed_data, extra_args, map_cfg, init_params
+            )
             return self._map_estimates_to_idata(estimates)
 
         if method == "vi":

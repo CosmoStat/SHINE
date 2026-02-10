@@ -253,7 +253,7 @@ class EuclidExposure:
 
     def prepare_image_data(
         self,
-        bad_pixel_mask: int = 0x01EAF5FF,
+        bad_pixel_mask: int = 0x1,
         background_map: Optional[np.ndarray] = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Prepare image data for inference.
@@ -263,6 +263,7 @@ class EuclidExposure:
 
         Args:
             bad_pixel_mask: Bitmask of defective-pixel flags to exclude.
+                Default ``0x1`` matches the VIS ``INVALID`` bit.
             background_map: If provided, 2-D background map to subtract.
                 Otherwise a sigma-clipped median is used.
 
@@ -302,6 +303,9 @@ class ExposureSet:
         noise_sigma: Per-pixel noise sigma, shape ``(n_exp, ny, nx)``.
             Masked pixels have value ``1e10``.
         masks: Boolean validity masks, shape ``(n_exp, ny, nx)``.
+        flag_maps: Raw integer flag maps per exposure, shape
+            ``(n_exp, ny, nx)``.  Kept as numpy arrays (not JAX) to
+            allow arbitrary bit queries for diagnostic masking.
         backgrounds: Estimated background levels, shape ``(n_exp,)``.
         pixel_positions: Source pixel positions per exposure, shape
             ``(n_sources, n_exp, 2)``.
@@ -316,6 +320,17 @@ class ExposureSet:
             ``(n_sources,)``.
         catalog_hlr_arcsec: Catalog half-light radius in arcsec per
             source, shape ``(n_sources,)``.
+        catalog_ra: Right ascension in degrees per source, shape
+            ``(n_sources,)``.
+        catalog_dec: Declination in degrees per source, shape
+            ``(n_sources,)``.
+        source_stamp_tier: Per-source stamp tier index, shape
+            ``(n_sources,)``.  Values are indices into the
+            ``galaxy_stamp_sizes`` config list.
+        exposure_corners_sky: Sky coordinates of detector corners per
+            exposure, shape ``(n_exp, 4, 2)`` as ``(RA, Dec)`` in
+            degrees.  Corner order: bottom-left, bottom-right,
+            top-right, top-left.
         source_ids: Object identifiers from the catalog.
         n_exposures: Number of exposures.
         n_sources: Number of selected sources.
@@ -326,6 +341,7 @@ class ExposureSet:
     images: jnp.ndarray
     noise_sigma: jnp.ndarray
     masks: jnp.ndarray
+    flag_maps: np.ndarray
     backgrounds: jnp.ndarray
 
     pixel_positions: jnp.ndarray
@@ -335,6 +351,10 @@ class ExposureSet:
 
     catalog_flux_adu: jnp.ndarray
     catalog_hlr_arcsec: jnp.ndarray
+    catalog_ra: np.ndarray
+    catalog_dec: np.ndarray
+    source_stamp_tier: jnp.ndarray
+    exposure_corners_sky: np.ndarray
     source_ids: list[int]
 
     n_exposures: int
@@ -397,9 +417,27 @@ class EuclidDataLoader:
         # Per-source, per-exposure metadata.
         metadata = self._compute_source_metadata(sources, exposures, psf_model)
 
+        # Drop sources that fall outside all exposure footprints.
+        any_visible = metadata["source_visible"].any(axis=1)
+        n_outside = int((~any_visible).sum())
+        if n_outside > 0:
+            keep = np.where(any_visible)[0]
+            logger.info(
+                "  Dropping %d sources outside all footprints, keeping %d",
+                n_outside,
+                len(keep),
+            )
+            for key in [
+                "pixel_positions", "wcs_jacobians", "psf_images",
+                "source_visible", "flux_adu", "hlr_arcsec",
+                "ra", "dec", "stamp_tier",
+            ]:
+                metadata[key] = metadata[key][keep]
+            metadata["source_ids"] = [metadata["source_ids"][i] for i in keep]
+
         ny, nx = exposures[0].sci.shape
         n_exp = len(exposures)
-        n_src = len(sources)
+        n_src = len(metadata["source_visible"])
 
         logger.info(
             "ExposureSet: %d exposures, %d sources, image %dx%d",
@@ -409,10 +447,28 @@ class EuclidDataLoader:
             ny,
         )
 
+        # Raw flag maps (numpy, not JAX) for diagnostic masking.
+        flag_maps = np.stack([exp.flags for exp in exposures])
+
+        # Exposure footprint corners in sky coordinates (RA, Dec).
+        # Order: bottom-left, bottom-right, top-right, top-left.
+        corners_pix = np.array(
+            [[0, 0], [nx - 1, 0], [nx - 1, ny - 1], [0, ny - 1]],
+            dtype=np.float64,
+        )
+        exposure_corners = np.zeros((n_exp, 4, 2))
+        for j, exp in enumerate(exposures):
+            ra_c, dec_c = exp.wcs.all_pix2world(
+                corners_pix[:, 0], corners_pix[:, 1], 0
+            )
+            exposure_corners[j, :, 0] = ra_c
+            exposure_corners[j, :, 1] = dec_c
+
         return ExposureSet(
             images=jnp.array(np.stack(images_list)),
             noise_sigma=jnp.array(np.stack(sigma_list)),
             masks=jnp.array(np.stack(mask_list)),
+            flag_maps=flag_maps,
             backgrounds=jnp.array(bg_list),
             pixel_positions=jnp.array(metadata["pixel_positions"]),
             wcs_jacobians=jnp.array(metadata["wcs_jacobians"]),
@@ -420,6 +476,10 @@ class EuclidDataLoader:
             source_visible=jnp.array(metadata["source_visible"]),
             catalog_flux_adu=jnp.array(metadata["flux_adu"]),
             catalog_hlr_arcsec=jnp.array(metadata["hlr_arcsec"]),
+            catalog_ra=metadata["ra"],
+            catalog_dec=metadata["dec"],
+            source_stamp_tier=jnp.array(metadata["stamp_tier"]),
+            exposure_corners_sky=exposure_corners,
             source_ids=metadata["source_ids"],
             n_exposures=n_exp,
             n_sources=n_src,
@@ -498,10 +558,10 @@ class EuclidDataLoader:
 
         # SNR filter.
         if (
-            "flux_vis_psf" in catalog.colnames
-            and "fluxerr_vis_psf" in catalog.colnames
+            "flux_detection_total" in catalog.colnames
+            and "fluxerr_detection_total" in catalog.colnames
         ):
-            snr = catalog["flux_vis_psf"] / catalog["fluxerr_vis_psf"]
+            snr = catalog["flux_detection_total"] / catalog["fluxerr_detection_total"]
             mask &= snr >= src_cfg.min_snr
             logger.info(
                 "  SNR >= %.1f: %d / %d pass",
@@ -522,16 +582,48 @@ class EuclidDataLoader:
         if src_cfg.exclude_deblended and "deblended_flag" in catalog.colnames:
             mask &= catalog["deblended_flag"] == 0
 
+        # Point source (star) flag.
+        if src_cfg.exclude_point_sources and "point_like_flag" in catalog.colnames:
+            mask &= catalog["point_like_flag"] != 1
+
+        # Detection quality flag (bright star mask, saturated, border, etc.).
+        if src_cfg.det_quality_exclude_mask and "det_quality_flag" in catalog.colnames:
+            mask &= (catalog["det_quality_flag"] & src_cfg.det_quality_exclude_mask) == 0
+            logger.info(
+                "  det_quality_flag & 0x%X == 0: %d / %d pass",
+                src_cfg.det_quality_exclude_mask,
+                mask.sum(),
+                len(catalog),
+            )
+
+        # Exclude sources too large for the biggest stamp tier.
+        # Needed stamp ≈ 2 * (3 * hlr_pix + psf_half); sources exceeding
+        # the largest configured stamp are not useful for lensing.
+        max_stamp = max(self.config.galaxy_stamp_sizes)
+        if "semimajor_axis" in catalog.colnames:
+            hlr_pix = np.array(catalog["semimajor_axis"])
+            psf_half = 10.5  # half of 21-pixel PSF stamp
+            needed = 2 * (3 * hlr_pix + psf_half)
+            size_mask = needed <= max_stamp
+            n_too_large = (~size_mask & mask).sum()
+            mask &= size_mask
+            if n_too_large > 0:
+                logger.info(
+                    "  Excluded %d sources too large for %dpx stamp",
+                    n_too_large,
+                    max_stamp,
+                )
+
         selected = catalog[mask]
         logger.info("  After all filters: %d sources", len(selected))
 
         if src_cfg.max_sources is not None and len(selected) > src_cfg.max_sources:
             # Sort by SNR descending, take top N.
             if (
-                "flux_vis_psf" in selected.colnames
-                and "fluxerr_vis_psf" in selected.colnames
+                "flux_detection_total" in selected.colnames
+                and "fluxerr_detection_total" in selected.colnames
             ):
-                snr = selected["flux_vis_psf"] / selected["fluxerr_vis_psf"]
+                snr = selected["flux_detection_total"] / selected["fluxerr_detection_total"]
                 idx = np.argsort(snr)[::-1][: src_cfg.max_sources]
                 selected = selected[idx]
             else:
@@ -564,9 +656,47 @@ class EuclidDataLoader:
         """
         n_src = len(sources)
         n_exp = len(exposures)
-        stamp_size = self.config.galaxy_stamp_size
-        margin = stamp_size // 2
+        stamp_sizes = self.config.galaxy_stamp_sizes
+        pixel_scale = self.config.data.pixel_scale
         psf_stamp_size = psf_model.stamp_size
+
+        # --- HLR and stamp tier assignment (before visibility loop) ---
+
+        # Half-light radius from catalog.
+        # Both semimajor_axis and kron_radius are in pixels (Euclid MER DPDD).
+        # Use semimajor_axis as the structural size estimate; FWHM (arcsec)
+        # as fallback.
+        hlr_arcsec = np.zeros(n_src)
+        if "semimajor_axis" in sources.colnames:
+            hlr_arcsec = (
+                np.array(sources["semimajor_axis"]) * pixel_scale
+            )
+        elif "fwhm" in sources.colnames:
+            # FWHM is already in arcsec; HLR ≈ FWHM / 2 for Gaussian-like
+            hlr_arcsec = np.array(sources["fwhm"]) * 0.5
+
+        hlr_arcsec = np.clip(hlr_arcsec, 0.05, 5.0)
+
+        # Assign stamp tier: smallest tier whose stamp can contain
+        # ~3 half-light radii on each side plus the PSF half-width.
+        hlr_pix = hlr_arcsec / pixel_scale
+        psf_half = psf_stamp_size / 2.0
+        needed_stamp = 2 * (3 * hlr_pix + psf_half)
+
+        stamp_tier = np.full(n_src, len(stamp_sizes) - 1, dtype=np.int32)
+        for t in range(len(stamp_sizes) - 1, -1, -1):
+            stamp_tier[needed_stamp <= stamp_sizes[t]] = t
+
+        tier_counts = [int((stamp_tier == t).sum()) for t in range(len(stamp_sizes))]
+        logger.info(
+            "  Stamp tier assignment: %s",
+            ", ".join(
+                f"{stamp_sizes[t]}px: {tier_counts[t]}"
+                for t in range(len(stamp_sizes))
+            ),
+        )
+
+        # --- Per-source, per-exposure loop ---
 
         pixel_positions = np.zeros((n_src, n_exp, 2))
         wcs_jacobians = np.zeros((n_src, n_exp, 4))
@@ -576,6 +706,7 @@ class EuclidDataLoader:
         for i, src in enumerate(sources):
             ra = float(src["right_ascension"])
             dec = float(src["declination"])
+            margin = stamp_sizes[stamp_tier[i]] // 2
 
             for j, exp in enumerate(exposures):
                 x, y = exp.sky_to_pixel(ra, dec)
@@ -589,24 +720,6 @@ class EuclidDataLoader:
         # Flux conversion: microJansky -> ADU.
         flux_adu = self._flux_ujy_to_adu(sources, exposures[0])
 
-        # Half-light radius from catalog.
-        hlr_arcsec = np.zeros(n_src)
-        if (
-            "kron_radius" in sources.colnames
-            and "semimajor_axis" in sources.colnames
-        ):
-            hlr_arcsec = np.array(
-                sources["kron_radius"]
-                * sources["semimajor_axis"]
-                * self.config.data.pixel_scale
-            )
-        elif "fwhm" in sources.colnames:
-            hlr_arcsec = (
-                np.array(sources["fwhm"]) * self.config.data.pixel_scale * 0.5
-            )
-
-        hlr_arcsec = np.clip(hlr_arcsec, 0.05, 5.0)
-
         source_ids = list(sources["object_id"])
 
         n_visible = source_visible.sum()
@@ -616,6 +729,9 @@ class EuclidDataLoader:
             n_src * n_exp,
         )
 
+        ra_arr = np.array(sources["right_ascension"], dtype=np.float64)
+        dec_arr = np.array(sources["declination"], dtype=np.float64)
+
         return {
             "pixel_positions": pixel_positions,
             "wcs_jacobians": wcs_jacobians,
@@ -623,6 +739,9 @@ class EuclidDataLoader:
             "source_visible": source_visible,
             "flux_adu": flux_adu,
             "hlr_arcsec": hlr_arcsec,
+            "ra": ra_arr,
+            "dec": dec_arr,
+            "stamp_tier": stamp_tier,
             "source_ids": source_ids,
         }
 
@@ -638,7 +757,7 @@ class EuclidDataLoader:
         where 23.9 is the AB magnitude zero-point for 1 micro-Jansky.
 
         Args:
-            sources: Source catalog containing ``flux_vis_psf``.
+            sources: Source catalog containing ``flux_detection_total``.
             reference_exposure: Exposure used for ``MAGZEROP`` and
                 ``EXPTIME`` header values.
 
@@ -650,7 +769,7 @@ class EuclidDataLoader:
 
         conversion = 10 ** ((magzp + 2.5 * np.log10(exptime) - 23.9) / 2.5)
 
-        flux_ujy = np.array(sources["flux_vis_psf"], dtype=np.float64)
+        flux_ujy = np.array(sources["flux_detection_total"], dtype=np.float64)
         flux_adu = flux_ujy * conversion
         logger.info(
             "  Flux conversion: magzp=%.2f, exptime=%.2f, factor=%.4e",
