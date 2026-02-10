@@ -55,16 +55,19 @@ config_dict = {
         },
     },
     "inference": {
-        "warmup": 500,
-        "samples": 1000,
-        "chains": 2,
-        "dense_mass": False,
-        "rng_seed": 42,
-        "map_init": {
-            "enabled": True,
-            "num_steps": 1000,
-            "learning_rate": 0.01,
+        "method": "nuts",
+        "nuts_config": {
+            "warmup": 500,
+            "samples": 1000,
+            "chains": 2,
+            "dense_mass": False,
+            "map_init": {
+                "enabled": True,
+                "num_steps": 1000,
+                "learning_rate": 0.01,
+            },
         },
+        "rng_seed": 42,
     },
     "data_path": None,           # None → generate synthetic data
     "output_path": "examples/output",
@@ -106,8 +109,8 @@ print("Probabilistic model built")
 rng_key = jax.random.PRNGKey(config.inference.rng_seed)
 engine = Inference(model=model_fn, config=config.inference)
 
-print(f"Running inference: {config.inference.warmup} warmup + "
-      f"{config.inference.samples} samples × {config.inference.chains} chains")
+print(f"Running inference: {config.inference.nuts_config.warmup} warmup + "
+      f"{config.inference.nuts_config.samples} samples × {config.inference.nuts_config.chains} chains")
 idata = engine.run(
     rng_key=rng_key,
     observed_data=observation.image,

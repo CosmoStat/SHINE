@@ -372,38 +372,19 @@ class InferenceConfig(BaseModel):
     Each method reads its own config block; the others are ignored.
     When a method's config block is None, defaults are applied.
 
-    Backward Compatibility:
-    This class also supports the legacy flat structure where NUTS parameters
-    (warmup, samples, chains, dense_mass, map_init) are provided directly
-    at the inference level. These will be automatically migrated to the new
-    hierarchical structure (nuts_config).
-
     Attributes:
         method: Inference method ("nuts", "map", or "vi").
         nuts_config: Configuration for NUTS/MCMC (used when method="nuts").
         map_config: Configuration for MAP estimation (used when method="map").
         vi_config: Configuration for Variational Inference (used when method="vi").
         rng_seed: Random number generator seed for reproducibility (default 0).
-        warmup: [DEPRECATED] Use nuts_config.warmup instead.
-        samples: [DEPRECATED] Use nuts_config.samples instead.
-        chains: [DEPRECATED] Use nuts_config.chains instead.
-        dense_mass: [DEPRECATED] Use nuts_config.dense_mass instead.
-        map_init: [DEPRECATED] Use nuts_config.map_init instead.
     """
-
 
     method: Literal["nuts", "map", "vi"] = "nuts"
     nuts_config: Optional[NUTSConfig] = None
     map_config: Optional[MAPConfig] = None
     vi_config: Optional[VIConfig] = None
     rng_seed: int = 0
-
-    # Backward compatibility fields (legacy flat structure)
-    warmup: Optional[int] = None
-    samples: Optional[int] = None
-    chains: Optional[int] = None
-    dense_mass: Optional[bool] = None
-    map_init: Optional[MAPConfig] = None
 
     @field_validator("rng_seed")
     @classmethod
@@ -412,51 +393,6 @@ class InferenceConfig(BaseModel):
         if v < 0:
             raise ValueError(f"RNG seed must be non-negative, got {v}")
         return v
-
-    @model_validator(mode="after")
-    def migrate_legacy_config(self) -> "InferenceConfig":
-        """Migrate legacy flat config to hierarchical structure.
-
-        If any of the legacy fields (warmup, samples, chains, dense_mass, map_init)
-        are provided, automatically create a NUTSConfig from them and clear the
-        legacy fields to avoid confusion.
-        """
-        # Check if any legacy fields are provided
-        has_legacy = any(
-            [
-                self.warmup is not None,
-                self.samples is not None,
-                self.chains is not None,
-                self.dense_mass is not None,
-                self.map_init is not None,
-            ]
-        )
-
-        if has_legacy:
-            # If nuts_config is already provided, raise an error
-            if self.nuts_config is not None:
-                raise ValueError(
-                    "Cannot specify both legacy flat config (warmup, samples, etc.) "
-                    "and nuts_config. Please use only one format."
-                )
-
-            # Create NUTSConfig from legacy fields, using defaults where not specified
-            self.nuts_config = NUTSConfig(
-                warmup=self.warmup if self.warmup is not None else 500,
-                samples=self.samples if self.samples is not None else 1000,
-                chains=self.chains if self.chains is not None else 1,
-                dense_mass=self.dense_mass if self.dense_mass is not None else False,
-                map_init=self.map_init,
-            )
-
-            # Clear legacy fields to avoid confusion
-            self.warmup = None
-            self.samples = None
-            self.chains = None
-            self.dense_mass = None
-            self.map_init = None
-
-        return self
 
 
 class ShineConfig(BaseModel):

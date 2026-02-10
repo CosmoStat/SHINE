@@ -292,84 +292,9 @@ class TestInferenceConfig:
             InferenceConfig(method="invalid")
 
     def test_inference_config_no_method_defaults_to_nuts(self):
-        """Test backward compatibility: no method field defaults to nuts."""
+        """Test that no method field defaults to nuts."""
         config = InferenceConfig(rng_seed=42)
         assert config.method == "nuts"
-
-    def test_inference_config_legacy_flat_structure(self):
-        """Test backward compatibility with legacy flat config structure."""
-        # Old-style config with flat structure
-        config = InferenceConfig(
-            warmup=500,
-            samples=1000,
-            chains=2,
-            dense_mass=True,
-            rng_seed=42,
-        )
-
-        # Should be migrated to nuts_config
-        assert config.nuts_config is not None
-        assert config.nuts_config.warmup == 500
-        assert config.nuts_config.samples == 1000
-        assert config.nuts_config.chains == 2
-        assert config.nuts_config.dense_mass is True
-        assert config.rng_seed == 42
-
-        # Legacy fields should be cleared
-        assert config.warmup is None
-        assert config.samples is None
-        assert config.chains is None
-        assert config.dense_mass is None
-
-    def test_inference_config_legacy_with_map_init(self):
-        """Test backward compatibility with legacy config including map_init."""
-        map_cfg = MAPConfig(enabled=True, num_steps=1000, learning_rate=0.01)
-        config = InferenceConfig(
-            warmup=500,
-            samples=1000,
-            chains=2,
-            dense_mass=False,
-            map_init=map_cfg,
-            rng_seed=42,
-        )
-
-        # Should be migrated to nuts_config
-        assert config.nuts_config is not None
-        assert config.nuts_config.warmup == 500
-        assert config.nuts_config.samples == 1000
-        assert config.nuts_config.chains == 2
-        assert config.nuts_config.dense_mass is False
-        assert config.nuts_config.map_init is not None
-        assert config.nuts_config.map_init.enabled is True
-        assert config.nuts_config.map_init.num_steps == 1000
-
-        # Legacy map_init should be cleared
-        assert config.map_init is None
-
-    def test_inference_config_legacy_partial_fields(self):
-        """Test backward compatibility with partial legacy fields uses defaults."""
-        # Only provide some legacy fields
-        config = InferenceConfig(warmup=300, samples=500)
-
-        # Should use defaults for missing fields
-        assert config.nuts_config is not None
-        assert config.nuts_config.warmup == 300
-        assert config.nuts_config.samples == 500
-        assert config.nuts_config.chains == 1  # default
-        assert config.nuts_config.dense_mass is False  # default
-
-    def test_inference_config_legacy_and_new_conflict(self):
-        """Test that mixing legacy and new config raises error."""
-        nuts_cfg = NUTSConfig(warmup=200, samples=400)
-        with pytest.raises(
-            ValueError,
-            match="Cannot specify both legacy flat config .* and nuts_config",
-        ):
-            InferenceConfig(
-                warmup=500,  # legacy
-                samples=1000,  # legacy
-                nuts_config=nuts_cfg,  # new
-            )
 
 
 class TestShineConfig:
@@ -481,51 +406,3 @@ class TestConfigHandler:
         finally:
             Path(tmp_path).unlink()
 
-    def test_load_config_with_legacy_inference(self):
-        """Test loading configuration with legacy flat inference structure."""
-        config_data = {
-            "image": {
-                "pixel_scale": 0.2,
-                "size_x": 32,
-                "size_y": 32,
-                "noise": {"type": "Gaussian", "sigma": 1.0},
-            },
-            "psf": {"type": "Gaussian", "sigma": 1.0},
-            "gal": {
-                "type": "Exponential",
-                "flux": 1000.0,
-                "half_light_radius": 1.0,
-                "shear": {"type": "G1G2", "g1": 0.01, "g2": -0.02},
-            },
-            "inference": {
-                # Legacy flat structure
-                "warmup": 500,
-                "samples": 1000,
-                "chains": 2,
-                "dense_mass": False,
-                "rng_seed": 42,
-                "map_init": {
-                    "enabled": True,
-                    "num_steps": 1000,
-                    "learning_rate": 0.01,
-                },
-            },
-        }
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tmp:
-            yaml.dump(config_data, tmp)
-            tmp_path = tmp.name
-
-        try:
-            config = ConfigHandler.load(tmp_path)
-            # Should be automatically migrated to new structure
-            assert config.inference.nuts_config is not None
-            assert config.inference.nuts_config.warmup == 500
-            assert config.inference.nuts_config.samples == 1000
-            assert config.inference.nuts_config.chains == 2
-            assert config.inference.nuts_config.dense_mass is False
-            assert config.inference.nuts_config.map_init is not None
-            assert config.inference.nuts_config.map_init.enabled is True
-            assert config.inference.rng_seed == 42
-        finally:
-            Path(tmp_path).unlink()
