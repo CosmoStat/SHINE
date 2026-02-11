@@ -925,3 +925,555 @@ roughly half a day.
 
 Q1 serves as a cost-effective validation run: it exercises the full
 distributed pipeline at <1% of the survey-scale cost.
+
+---
+
+## 13. Modern Infrastructure Stack
+
+Section 12 describes a minimal AWS Batch deployment.  This section
+specifies a production-grade infrastructure that replaces ad-hoc
+scripting with industry-standard tooling for workflow orchestration,
+data management, observability, and reproducibility — designed so that
+processing the full Euclid Wide Survey is operationally routine.
+
+### 13.1 Design Philosophy
+
+1. **Cloud-native, not HPC-native.**  SLURM is the academic default but
+   couples scheduling, monitoring, and data management into a single
+   monolith that requires a dedicated system administrator.  A modern
+   stack decomposes these concerns into independent, managed services.
+
+2. **Python-first.**  The entire pipeline — from job definition to result
+   analysis — should be expressible in Python, the language the team
+   already uses for JAX, NumPyro, and scientific analysis.
+
+3. **Pay-per-use, zero idle cost.**  No always-on head nodes or
+   persistent clusters.  GPU instances exist only while jobs are running.
+
+4. **Reproducible by construction.**  Every output artifact is traceable
+   to the exact code version, configuration, container image, and input
+   data that produced it.
+
+5. **Operator-light.**  A team of 5–10 scientists should be able to run
+   the full survey pipeline without a dedicated DevOps engineer.
+
+### 13.2 Reference Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        CODE & ARTIFACTS                             │
+│  GitHub (code, configs, CI/CD)                                      │
+│  ECR (Docker images: JAX + CUDA + SHINE)                            │
+│  DVC (input data versioning → S3)                                   │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────────┐
+│                    WORKFLOW ORCHESTRATION                            │
+│  Flyte (open-source, on EKS)  or  Union.ai (managed Flyte)         │
+│  ┌────────────────────────────────────────────────────────┐         │
+│  │  @workflow shear_pipeline                               │         │
+│  │    Stage 1: map_task(prepare_tile)     → manifests      │         │
+│  │    Stage 2: map_task(infer_subtile)    → per-tile results│        │
+│  │    Stage 3: assemble_catalog()         → shear catalog  │         │
+│  └────────────────────────────────────────────────────────┘         │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────────┐
+│                       GPU COMPUTE                                    │
+│  SkyPilot (multi-cloud spot broker)                                  │
+│    ├── GCP Spot g2-standard-4 (L4, $0.21/hr)  ← preferred           │
+│    ├── AWS Spot g6.xlarge     (L4, $0.35/hr)  ← fallback            │
+│    └── RunPod / Vast.ai                       ← overflow            │
+│  OR                                                                  │
+│  Modal (serverless GPU, $0.80/hr, zero idle, 2s cold start)          │
+│    └── development / prototyping / small campaigns                   │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────────┐
+│                      DATA LAKEHOUSE                                  │
+│                                                                      │
+│  Input (FITS)                                                        │
+│    S3 Standard ──→ S3 Intelligent-Tiering (auto-archive)             │
+│                                                                      │
+│  Hot staging (per-job I/O)                                           │
+│    S3 Express One Zone (same-AZ, 10× lower latency)                  │
+│                                                                      │
+│  Output catalog                                                      │
+│    Apache Iceberg table (Parquet files on S3 Standard)                │
+│    ├── Partitioned by tile_id                                        │
+│    ├── Row lineage (Iceberg V3)                                      │
+│    ├── Schema evolution as pipeline matures                          │
+│    └── Registered in AWS Glue Data Catalog                           │
+│                                                                      │
+│  Query engines                                                       │
+│    DuckDB (local, embedded) ── primary analysis tool                 │
+│    Polars (Python DataFrames) ── analysis scripts                    │
+│    Athena (serverless SQL) ── ad-hoc distributed queries             │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────────┐
+│                      OBSERVABILITY                                   │
+│                                                                      │
+│  Flyte (built-in)                                                    │
+│    ├── FlyteAdmin DB: job state for all 1M tasks (status, duration,  │
+│    │   retries, spot recoveries) — replaces custom job_states table  │
+│    ├── FlyteConsole UI: task logs, map task progress, Flyte Deck     │
+│    └── Prometheus metrics: flyte_task_count_by_phase, durations      │
+│                                                                      │
+│  Grafana + Prometheus + Loki (infrastructure layer, ~$30/mo)         │
+│    ├── GPU utilization, cost burn rate (cloud metrics)                │
+│    ├── Spot interruption tracking (EventBridge → Prometheus)         │
+│    ├── Flyte metrics (scraped from FlytePropeller)                   │
+│    └── Centralized logs (Loki → S3, ~20 GB for 1M jobs)              │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 13.3 Workflow Orchestration: Flyte
+
+**Why Flyte.**  Among Python-native workflow orchestrators (Prefect,
+Dagster, Airflow, Argo Workflows), Flyte is the only one that
+simultaneously provides:
+
+- **Map tasks** — a first-class primitive for embarrassingly parallel
+  work with metadata-efficient bitset compression (no per-task DAG
+  node overhead).
+- **First-class GPU requests** — `Resources(gpu="1")` in the task
+  decorator; no YAML pod spec manipulation.
+- **First-class spot support** — `interruptible=True` enables separate
+  system-retry and user-retry budgets.  After exhausting system
+  retries, the final attempt automatically falls back to an on-demand
+  instance.
+- **Open source** — Apache 2.0 license.  No per-task pricing (unlike
+  Dagster at ~$0.03/credit, which would cost $30–40K for 1M jobs).
+- **Proven at scale** — Woven by Toyota (autonomous driving pipelines),
+  Spotify (ML features), Lyft (data platform).
+
+**Why not the others:**
+
+| Tool | Disqualifying issue for this workload |
+|------|---------------------------------------|
+| Dagster | Per-credit pricing: ~$30–40K orchestration cost for 1M jobs |
+| Airflow | Cannot scale beyond ~1K parallel tasks; scheduler bottleneck |
+| Prefect | No map task primitive; weak spot retry; scheduler bottleneck |
+| Argo Workflows | YAML-centric; K8s etcd 1.5 MB object limit at 1M nodes |
+
+**Pipeline definition:**
+
+```python
+from flytekit import task, workflow, Resources, map_task
+
+@task(
+    requests=Resources(gpu="1", mem="8Gi"),
+    interruptible=True,
+    retries=2,
+)
+def infer_subtile(manifest_path: str) -> SubtileResult:
+    """Run shear inference on one sub-tile (1 GPU job)."""
+    exposure_set = load_from_manifest(manifest_path)
+    scene = MultiExposureScene(exposure_set, config)
+    inference = Inference(config.inference)
+    params = inference.run_map(scene.model, scene.guide)
+    return SubtileResult(params, exposure_set.core_source_ids)
+
+@task(requests=Resources(cpu="4", mem="16Gi"))
+def prepare_tile(tile_id: int) -> list[str]:
+    """Write per-sub-tile manifests and return their paths."""
+    ...
+
+@task(requests=Resources(cpu="8", mem="32Gi"))
+def assemble_catalog(results: list[SubtileResult]) -> str:
+    """Merge sub-tile results into Iceberg shear catalog."""
+    ...
+
+@workflow
+def shear_pipeline(tile_ids: list[int]) -> str:
+    manifests = map_task(prepare_tile)(tile_id=tile_ids)
+    # flatten list of lists
+    all_manifests = flatten(manifests)
+    results = map_task(infer_subtile, concurrency=5000)(
+        manifest_path=all_manifests
+    )
+    return assemble_catalog(results=results)
+```
+
+At ~960K sub-tiles, the map task fan-out is batched into groups of
+5,000–10,000 to stay within FlytePropeller's optimal range.  Nested
+parallelism handles the outer loop over batches.
+
+**Deployment options:**
+
+| Option | Operational burden | Cost |
+|--------|-------------------|------|
+| Union.ai (managed Flyte) | Minimal — control plane as a service | Contact sales |
+| Self-hosted Flyte on EKS | Moderate — run FlytePropeller + FlyteAdmin | EKS cluster cost |
+
+### 13.4 GPU Compute
+
+The sub-tile inference jobs need a single GPU for 10–40 minutes each.
+The choice of compute backend determines cost, reliability, and
+operational complexity.
+
+#### Recommended: SkyPilot (Production Campaigns)
+
+SkyPilot is an open-source (BSD) multi-cloud GPU broker from
+UC Berkeley.  It provisions spot instances across 20+ clouds,
+automatically failing over when capacity is unavailable or instances
+are preempted.
+
+**Why SkyPilot:**
+
+- **Cheapest compute.**  Shops across GCP (L4 spot at $0.21/hr), AWS
+  (L4 spot at $0.35/hr), RunPod ($0.39/hr), and Vast.ai ($0.20–0.50/hr)
+  to find the lowest available price.  Blended spot rate: ~$0.25/hr.
+- **Automatic spot recovery.**  Preempted jobs are re-provisioned in a
+  different region or cloud with no manual intervention.
+- **Managed Jobs.**  `sky jobs launch` handles the full lifecycle:
+  provisioning, execution, recovery, teardown.  Up to 2,000 concurrent
+  running jobs per controller.
+- **Open source.**  No vendor lock-in.  No additional cost beyond cloud
+  resources.
+
+**Cost at survey scale:**
+
+| Scale | GPU-hours | SkyPilot Spot (~$0.25/hr) | AWS Batch Spot (~$0.35/hr) |
+|-------|-----------|--------------------------|---------------------------|
+| Q1 (65 deg²) | ~2,100 | ~$500 | ~$750 |
+| Full survey (15,000 deg²) | ~200,000 | ~$50,000 | ~$70,000 |
+
+SkyPilot integrates with Flyte as the compute backend: Flyte submits
+tasks, SkyPilot provisions the cheapest available GPU instance.
+
+#### Recommended: Modal (Development & Prototyping)
+
+Modal is a serverless GPU platform with a Python-native SDK.  It
+eliminates all infrastructure management at the cost of higher per-hour
+pricing (~$0.80/hr for an L4).
+
+**Why Modal for development:**
+
+- **2–5 second cold starts** with GPU memory snapshots — fastest
+  iteration cycle of any platform.
+- **Zero infrastructure.**  No Dockerfiles, no Terraform, no Kubernetes.
+  A decorated Python function is the entire deployment unit.
+- **True pay-per-second** with zero idle cost.
+- **`.map()` built-in** — `function.map(source_ids)` fans out to
+  thousands of GPUs.
+
+```python
+import modal
+
+app = modal.App("shine-dev")
+image = (modal.Image.debian_slim()
+    .pip_install("jax[cuda12]", "numpyro", "jax-galsim", "astropy"))
+
+@app.function(gpu="L4", image=image, timeout=3600)
+def infer_subtile(manifest_path: str):
+    from shine.euclid.run import run_subtile
+    return run_subtile(manifest_path)
+
+@app.local_entrypoint()
+def main():
+    manifests = [...]  # list of S3 paths
+    results = list(infer_subtile.map(manifests))
+```
+
+**Use Modal for** pilot runs (100–1,000 sub-tiles), algorithm debugging,
+and rapid experimentation.  **Switch to SkyPilot** for production
+campaigns where the 2–3× cost premium adds up.
+
+#### Compute Platform Decision Matrix
+
+| Criterion | SkyPilot | Modal | AWS Batch |
+|-----------|----------|-------|-----------|
+| Cost (L4/hr) | ~$0.25 (spot) | ~$0.80 | ~$0.35 (spot) |
+| 200K GPU-hr total | ~$50K | ~$160K | ~$70K |
+| Cold start | 2–5 min | 2–5 sec | 2–5 min |
+| Max concurrency | 2,000 | Enterprise (custom) | 10,000+ |
+| Spot recovery | Cross-cloud automatic | N/A (serverless) | Same-region requeue |
+| Infrastructure | Controller VM | None | Compute environment |
+| Python SDK | `sky.jobs.launch()` | `function.map()` | `boto3` |
+| Best for | Production campaigns | Dev / prototyping | AWS-native shops |
+
+### 13.5 Data Lakehouse: Apache Iceberg on S3
+
+The output shear catalog should not remain in FITS.  A modern data
+lakehouse provides ACID transactions, schema evolution, time travel, and
+fast analytical queries — capabilities that FITS lacks entirely.
+
+#### Why Iceberg
+
+Apache Iceberg is the table format with the broadest engine support
+(DuckDB, Athena, Spark, Trino, Flink) and the strongest schema
+evolution (add, drop, rename, reorder columns without rewriting data).
+AWS, Google, Snowflake, and Databricks have all converged on Iceberg
+as the standard open table format.
+
+Key features for SHINE:
+
+| Feature | Benefit |
+|---------|---------|
+| **Schema evolution** | Add new columns (e.g., VAE morphology params) as the pipeline matures without rewriting existing data |
+| **Partition evolution** | Change partitioning scheme (e.g., from tile_id to HEALPix) without rewriting data |
+| **Time travel** | Query the catalog at any historical snapshot: `SELECT * FROM catalog FOR SYSTEM_TIME AS OF '2026-06-01'` |
+| **Row lineage (V3)** | Every row tracks which write operation created it — native provenance |
+| **Compaction** | Merge millions of small per-job Parquet files into optimally-sized ones (128 MB–1 GB) without blocking reads |
+| **Hidden partitioning** | Partition by `tile_id` without users needing to know — queries are automatically pruned |
+
+#### Storage Tiers
+
+| Data | Volume | Tier | Rationale |
+|------|--------|------|-----------|
+| Input FITS (current batch) | ~1 GB/sub-tile | S3 Standard | Read once per job |
+| Hot compute staging | ~10 MB/job output | S3 Express One Zone | Same-AZ, 10× lower latency, zero first-byte |
+| Shear catalog (Iceberg) | ~10 GB Q1, ~TB survey | S3 Standard | Frequent analytical queries |
+| Processed input archive | ~30 TB Q1, ~PB survey | S3 Intelligent-Tiering | Auto-archives after 30 days, zero retrieval fees |
+
+#### Output Format: Parquet (not FITS)
+
+Per-job results are written as Parquet and committed to an Iceberg
+table.  Parquet provides columnar storage with predicate pushdown,
+compression (typically 3–5×), and native support in every modern query
+engine.  The FITS format remains for input data only (as delivered by
+the Euclid pipeline).
+
+#### Metadata Catalog: AWS Glue
+
+AWS Glue Data Catalog is serverless and integrates natively with Athena
+and DuckDB (via REST catalog).  Zero operational overhead.  For
+published catalog releases, Project Nessie can be added later — it
+provides Git-like branching and tagging of catalog state (e.g.,
+`q1-release-v1.0`).
+
+#### Query Engines
+
+| Engine | Use case | Deployment |
+|--------|----------|------------|
+| **DuckDB** | Interactive analysis, notebooks, local exploration | `pip install duckdb` — embedded, zero infrastructure |
+| **Polars** | Python-native DataFrame operations, analysis scripts | `pip install polars` — 5–10× faster than Pandas |
+| **Athena** | Ad-hoc SQL over the full survey catalog, shared access | Serverless — $5/TB scanned |
+
+```python
+import duckdb
+
+con = duckdb.connect()
+con.sql("INSTALL iceberg; LOAD iceberg;")
+
+# Query the shear catalog directly from S3
+result = con.sql("""
+    SELECT tile_id,
+           AVG(g1) AS mean_g1, AVG(g2) AS mean_g2,
+           STDDEV(g1) AS std_g1, COUNT(*) AS n_sources
+    FROM iceberg_scan('s3://shine-catalog/shear_catalog')
+    WHERE snr > 20
+    GROUP BY tile_id
+""").df()
+```
+
+### 13.6 Observability
+
+Flyte provides the primary observability layer.  Grafana adds
+infrastructure metrics that Flyte does not own.  Scientific results
+live in the Iceberg catalog (Section 13.5), not in the observability
+stack.
+
+#### Job State and Logs: Flyte (Built-In)
+
+Flyte's metadata store (FlyteAdmin + PostgreSQL) already tracks every
+task execution: status, start/end time, duration, retry count, error
+messages, spot preemption recoveries.  This replaces a custom job state
+table entirely.
+
+| Flyte feature | What it provides |
+|---------------|------------------|
+| **FlyteAdmin DB** | Status of all 1M tasks — queryable via FlyteAdmin API |
+| **FlyteConsole** | Web UI: per-task logs, map task aggregate progress (e.g., "847,231 / 960,000"), input/output inspection |
+| **Flyte Deck** | Inline HTML reports attached to each task (convergence plots, residual images) |
+| **System vs user retries** | Separate tracking of spot interruptions (system) vs application failures (user) |
+
+Flyte Deck is particularly useful for diagnostics — each
+`infer_subtile` task can render its observed/model/residual panels
+directly into FlyteConsole, viewable without downloading files:
+
+```python
+import flytekit
+
+@task(requests=Resources(gpu="1"), interruptible=True, retries=2)
+def infer_subtile(manifest_path: str) -> SubtileResult:
+    ...
+    # Attach diagnostic plot to Flyte Deck
+    flytekit.Deck("diagnostics", make_diagnostic_html(obs, model, chi))
+    return result
+```
+
+#### Infrastructure Metrics: Grafana + Prometheus
+
+Flyte does not know about GPU utilization, memory pressure, spot
+interruption rates, or cost burn.  A lightweight Grafana stack
+fills this gap by scraping both cloud metrics and Flyte's own
+Prometheus endpoint:
+
+| Source | Metrics |
+|--------|---------|
+| **FlytePropeller** (Prometheus) | `flyte_task_count_by_phase`, workflow durations, queue depths |
+| **NVIDIA GPU Operator** (Prometheus) | SM utilization, memory usage, temperature |
+| **CloudWatch / GCP Monitoring** | Spot interruption events, instance counts, cost |
+| **Loki** (log aggregation) | Centralized logs (~20 GB for 1M jobs, compressed to ~2 GB on S3) |
+
+All metrics feed into a single Grafana dashboard — one pane of glass
+for both Flyte workflow health and infrastructure health.
+
+**Cost:** A `t3.medium` running Grafana + Prometheus + Loki — ~$30/month.
+
+#### What About MLflow / W&B / Neptune?
+
+At 1M jobs, these tools either cannot scale (MLflow backend bottleneck)
+or become prohibitively expensive (Dagster/Neptune per-datapoint
+pricing, W&B enterprise).  Flyte's built-in tracking plus the Iceberg
+catalog for scientific results covers all needs without additional
+services.
+
+### 13.7 Infrastructure as Code: Terraform
+
+All infrastructure — EKS cluster (including Flyte), GPU node groups,
+S3 buckets, Grafana stack — is defined in Terraform.  Terraform's
+declarative model (`terraform plan` before `terraform apply`) prevents
+drift and ensures reproducible deployments.
+
+```
+infra/
+├── modules/
+│   ├── networking/          # VPC, subnets, security groups
+│   ├── eks/                 # EKS cluster for Flyte
+│   ├── gpu-nodes/           # Karpenter GPU node pools (spot + on-demand)
+│   ├── storage/             # S3 buckets (input, staging, catalog)
+│   ├── flyte/               # Flyte control plane (FlyteAdmin, DB, console)
+│   └── monitoring/          # Grafana, Prometheus, Loki
+├── environments/
+│   ├── dev/                 # Small cluster for testing
+│   └── prod/                # Full-scale survey processing
+├── main.tf
+└── variables.tf
+```
+
+**Why Terraform over Pulumi/CDK:** Declarative (no imperative logic
+that can diverge between runs), largest ecosystem (providers for every
+service in the stack), and `terraform plan` provides a safety review
+before modifying expensive GPU infrastructure.
+
+### 13.8 CI/CD and Reproducibility
+
+#### Container Pipeline
+
+```
+git push → GitHub Actions → Build Docker image (JAX+CUDA+SHINE)
+         → Push to ECR (tagged with git SHA)
+         → Push to GHCR (public mirror for collaborators)
+```
+
+Images are tagged with the git short SHA for exact reproducibility:
+`shine:fdef029`.  Semantic version tags (`shine:v0.3.1`) are added
+for releases.
+
+#### Tiered Testing
+
+| Trigger | Test suite | GPU? | Cost |
+|---------|-----------|------|------|
+| Every push | `pytest tests/ -k "not gpu"` | No | Free (GitHub Actions) |
+| PR to main | GPU smoke test (single sub-tile MAP) | Yes | ~$0.50 (self-hosted runner) |
+| Weekly | Full integration test on bundled data | Yes | ~$2 |
+
+#### Data Versioning: DVC
+
+DVC (Data Version Control) stores content-addressable hashes of input
+FITS files in Git while the actual data lives on S3.  The `dvc.lock`
+file records the exact hash of every input, making it possible to
+reconstruct the full input state for any past run.
+
+#### Provenance Chain
+
+Every output catalog row is traceable:
+
+```
+Shear catalog row
+  → Iceberg V3 row lineage (which commit wrote it)
+    → FlyteAdmin execution record (tile_id, code_version, config_hash, container_tag)
+      → Git SHA (exact source code)
+      → DVC lock (exact input data hashes)
+      → ECR image (exact Python/JAX/CUDA environment)
+```
+
+### 13.9 Cost Summary
+
+#### Infrastructure (Monthly, Always-On)
+
+| Component | Service | Cost |
+|-----------|---------|------|
+| Flyte control plane + metadata DB | EKS (self-hosted) or Union.ai | ~$100–250 |
+| Infrastructure metrics | EC2 t3.medium (Grafana+Prometheus+Loki) | ~$30 |
+| Log storage | S3 (Loki backend) | ~$1 |
+| Container registry | ECR | ~$5 |
+| **Total** | | **~$135–290/month** |
+
+#### Compute (Per Campaign)
+
+| Scale | GPU-hours | SkyPilot Spot | Modal | AWS Batch Spot |
+|-------|-----------|---------------|-------|----------------|
+| Pilot (1 tile, 16 sub-tiles) | ~4 | ~$1 | ~$3 | ~$1.50 |
+| Q1 (65 deg², ~4,200 sub-tiles) | ~2,100 | ~$500 | ~$1,700 | ~$750 |
+| Full survey (15,000 deg², ~960K sub-tiles) | ~200,000 | **~$50,000** | ~$160,000 | ~$70,000 |
+
+#### Total Cost: Full Euclid Wide Survey (MAP)
+
+| Component | Cost |
+|-----------|------|
+| GPU compute (SkyPilot spot) | ~$50,000 |
+| S3 storage (output catalog + staging) | ~$500 |
+| S3 Intelligent-Tiering (input archive) | ~$5,000/year |
+| Infrastructure (6-month campaign) | ~$1,000–1,750 |
+| **Total** | **~$56,500–57,250** |
+
+This is comparable to the cost of a single postdoc-year, for a shear
+catalog covering the full 15,000 deg² Euclid Wide Survey.
+
+### 13.10 Comparison: Academic SLURM vs Modern Stack
+
+| Dimension | SLURM (HPC cluster) | Modern stack |
+|-----------|---------------------|-------------|
+| **Scheduling** | `sbatch` + job arrays | Flyte map tasks + SkyPilot |
+| **GPU provisioning** | Fixed cluster allocation | Elastic spot across clouds |
+| **Spot/preemption** | Not applicable (dedicated nodes) | Automatic cross-cloud recovery |
+| **Data management** | Lustre/GPFS shared filesystem | S3 + Iceberg lakehouse |
+| **Output catalog** | FITS files on disk | Iceberg table (versioned, queryable) |
+| **Monitoring** | `squeue`, ad-hoc scripts | FlyteConsole + Grafana dashboards |
+| **Reproducibility** | Manual (hope you saved the right scripts) | Git + DVC + ECR + Iceberg snapshots |
+| **Cost model** | Allocation hours (opaque) | Pay-per-second (transparent) |
+| **Scaling** | Limited by cluster size | Elastic to thousands of GPUs |
+| **Setup effort** | Sysadmin dependency | `terraform apply` |
+
+### 13.11 Phased Adoption
+
+| Phase | Scope | What to deploy |
+|-------|-------|---------------|
+| **1. Prototype** | 1 MER tile (16 sub-tiles) | Modal for GPU compute, Parquet output to S3, DuckDB for analysis |
+| **2. Q1 campaign** | 65 deg² (~4,200 sub-tiles) | Add Flyte (or Union.ai) for orchestration, Iceberg catalog, Grafana stack, Terraform |
+| **3. Full survey** | 15,000 deg² (~960K sub-tiles) | Switch to SkyPilot for cost-optimal spot compute, add Nessie for catalog release management, production Terraform environment |
+
+### 13.12 Technology References
+
+- [Flyte — Kubernetes-native ML workflow engine](https://flyte.org/)
+- [Union.ai — managed Flyte](https://www.union.ai/)
+- [Flyte map tasks](https://flyte.org/blog/map-tasks-in-flyte)
+- [Flyte spot instance support](https://docs.flyte.org/en/latest/user_guide/productionizing/spot_instances.html)
+- [SkyPilot — multi-cloud GPU orchestrator](https://skypilot.readthedocs.io/)
+- [SkyPilot managed jobs](https://docs.skypilot.co/en/latest/examples/managed-jobs.html)
+- [Modal — serverless GPU compute](https://modal.com/)
+- [Apache Iceberg — open table format](https://iceberg.apache.org/)
+- [Iceberg V3: row lineage](https://opensource.googleblog.com/2025/08/whats-new-in-iceberg-v3.html)
+- [DuckDB Iceberg integration](https://duckdb.org/docs/extensions/iceberg.html)
+- [Polars — fast DataFrames for Python](https://pola.rs/)
+- [S3 Express One Zone](https://aws.amazon.com/s3/storage-classes/express-one-zone/)
+- [Grafana + Loki log aggregation](https://grafana.com/oss/loki/)
+- [Terraform](https://www.terraform.io/)
+- [DVC — data version control](https://dvc.org/)
+- [Project Nessie — Git-like catalog](https://projectnessie.org/)
+- [Kueue — Kubernetes-native job queueing](https://kueue.sigs.k8s.io/)
