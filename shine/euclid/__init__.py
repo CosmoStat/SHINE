@@ -28,30 +28,20 @@ __all__ = [
 
 def __getattr__(name: str):
     """Lazy-load heavy submodules to avoid importing astropy at import time."""
-    if name in ("EuclidPSFModel", "EuclidExposure", "EuclidDataLoader", "ExposureSet"):
-        from shine.euclid.data_loader import (
-            EuclidDataLoader,
-            EuclidExposure,
-            EuclidPSFModel,
-            ExposureSet,
-        )
+    _data_loader_names = {
+        "EuclidPSFModel", "EuclidExposure", "EuclidDataLoader", "ExposureSet",
+    }
+    _scene_names = {"MultiExposureScene", "render_model_images"}
 
-        _lazy = {
-            "EuclidPSFModel": EuclidPSFModel,
-            "EuclidExposure": EuclidExposure,
-            "EuclidDataLoader": EuclidDataLoader,
-            "ExposureSet": ExposureSet,
-        }
-        return _lazy[name]
+    if name in _data_loader_names:
+        from shine.euclid import data_loader
 
-    if name in ("MultiExposureScene", "render_model_images"):
-        from shine.euclid.scene import MultiExposureScene, render_model_images
+        return getattr(data_loader, name)
 
-        _lazy = {
-            "MultiExposureScene": MultiExposureScene,
-            "render_model_images": render_model_images,
-        }
-        return _lazy[name]
+    if name in _scene_names:
+        from shine.euclid import scene
+
+        return getattr(scene, name)
 
     if name == "plot_exposure_comparison":
         from shine.euclid.plots import plot_exposure_comparison

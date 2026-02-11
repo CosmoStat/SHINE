@@ -10,8 +10,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from shine.euclid.config import EuclidDataConfig, EuclidInferenceConfig
-
 DATA_DIR = Path(__file__).parent.parent.parent / "data" / "EUC_VIS_SWL"
 
 # Skip all tests if data not available
@@ -21,7 +19,7 @@ pytestmark = pytest.mark.skipif(
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Fixtures (local to this module)
 # ---------------------------------------------------------------------------
 
 
@@ -55,30 +53,6 @@ def exposure_with_background(exposure):
     with pyfits.open(str(bkg_path)) as hdul:
         bkg_map = hdul["3-4.F"].data.astype(np.float32)
     return exposure, bkg_map
-
-
-@pytest.fixture(scope="module")
-def small_config():
-    """Build a small EuclidInferenceConfig for 3 bright sources."""
-    from shine.euclid.config import SourceSelectionConfig
-
-    exposure_paths = sorted(
-        str(p) for p in DATA_DIR.glob("EUC_VIS_SWL-DET-*_3-4-F.fits.gz")
-    )
-    bkg_paths = sorted(
-        str(p) for p in DATA_DIR.glob("EUC_VIS_SWL-BKG-*_3-4-F.fits.gz")
-    )
-    return EuclidInferenceConfig(
-        data=EuclidDataConfig(
-            exposure_paths=exposure_paths,
-            psf_path=str(DATA_DIR / "PSF_3-4-F.fits.gz"),
-            catalog_path=str(DATA_DIR / "catalogue_3-4-F.fits.gz"),
-            background_paths=bkg_paths,
-        ),
-        sources=SourceSelectionConfig(
-            max_sources=3, min_snr=50.0, exclude_point_sources=False
-        ),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +99,6 @@ class TestEuclidExposure:
     def test_wcs_sky_to_pixel(self, exposure):
         """Converting a known RA/Dec should give pixel coords within the
         quadrant bounds (0..2048, 0..2066)."""
-        # Use the WCS reference pixel as a safe known position.
         crval1 = exposure.wcs.wcs.crval[0]
         crval2 = exposure.wcs.wcs.crval[1]
         x, y = exposure.sky_to_pixel(crval1, crval2)
@@ -138,14 +111,9 @@ class TestEuclidExposure:
         u-West / v-North should be consistent."""
         dudx, dudy, dvdx, dvdy = exposure.local_wcs_jacobian(1024, 1033)
 
-        # Magnitude of the pixel scale should be ~0.1 arcsec/pixel.
         scale = np.sqrt(abs(dudx * dvdy - dudy * dvdx))
         np.testing.assert_allclose(scale, 0.1, atol=0.02)
 
-        # u points West (positive RA decreases): dudx should contribute a
-        # positive component when the standard orientation is RA increasing
-        # with x and the sign flip is applied.  We just check the determinant
-        # sign is positive (right-handed u-West, v-North).
         det = dudx * dvdy - dudy * dvdx
         assert det > 0, f"Jacobian determinant should be positive, got {det}"
 
@@ -183,12 +151,9 @@ class TestImagePreparation:
         """With a provided background map the result should differ from
         the sigma-clipped fallback."""
         exp, bkg_map = exposure_with_background
-        image_map, _, mask_map = exp.prepare_image_data(
-            background_map=bkg_map,
-        )
-        image_med, _, mask_med = exp.prepare_image_data()
+        image_map, _, _ = exp.prepare_image_data(background_map=bkg_map)
+        image_med, _, _ = exp.prepare_image_data()
 
-        # The two images should not be identical.
         assert not np.allclose(image_map, image_med)
 
 

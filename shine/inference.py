@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import logging
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
 import arviz as az
 import jax
@@ -35,10 +37,10 @@ class Inference:
         self,
         rng_key: jax.random.PRNGKey,
         observed_data: jnp.ndarray,
-        extra_args: Optional[Dict[str, Any]] = None,
+        extra_args: Optional[dict[str, Any]] = None,
         map_config: Optional[MAPConfig] = None,
-        init_params: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        init_params: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
         """Run MAP estimation to find maximum a posteriori parameters.
 
         Args:
@@ -70,7 +72,7 @@ class Inference:
         optimizer = numpyro.optim.Adam(step_size=map_config.learning_rate)
         svi = SVI(self.model, guide, optimizer, loss=Trace_ELBO())
 
-        logger.info(f"Running MAP estimation for {map_config.num_steps} steps...")
+        logger.info("Running MAP estimation for %d steps...", map_config.num_steps)
         svi_result = svi.run(
             rng_key, map_config.num_steps, observed_data=observed_data, **extra_args
         )
@@ -80,7 +82,7 @@ class Inference:
         return map_estimates
 
     @staticmethod
-    def _map_estimates_to_idata(map_estimates: Dict[str, Any]) -> az.InferenceData:
+    def _map_estimates_to_idata(map_estimates: dict[str, Any]) -> az.InferenceData:
         """Wrap MAP point estimates as InferenceData (1 chain, 1 draw).
 
         Args:
@@ -101,7 +103,7 @@ class Inference:
         self,
         rng_key: jax.random.PRNGKey,
         observed_data: jnp.ndarray,
-        extra_args: Optional[Dict[str, Any]] = None,
+        extra_args: Optional[dict[str, Any]] = None,
     ) -> az.InferenceData:
         """Run Variational Inference with AutoNormal guide.
 
@@ -122,8 +124,9 @@ class Inference:
         svi = SVI(self.model, guide, optimizer, loss=Trace_ELBO())
 
         logger.info(
-            f"Running VI: {vi_config.num_steps} steps, "
-            f"lr={vi_config.learning_rate}..."
+            "Running VI: %d steps, lr=%s...",
+            vi_config.num_steps,
+            vi_config.learning_rate,
         )
         svi_result = svi.run(
             rng_key, vi_config.num_steps, observed_data=observed_data, **extra_args
@@ -138,19 +141,20 @@ class Inference:
             sample_key, observed_data=observed_data, **extra_args
         )
 
-        # Wrap as InferenceData (1 chain, N draws), filtering out "obs"
+        # Wrap as InferenceData (1 chain, N draws), filtering out obs sites
         posterior_dict = {
             k: np.array(v)[None, ...]
             for k, v in vi_samples.items()
-            if k != "obs"
+            if not k.startswith("obs")
         }
         idata = az.from_dict(posterior=posterior_dict)
         idata.posterior.attrs["inference_method"] = "vi"
         idata.posterior.attrs["vi_final_loss"] = float(svi_result.losses[-1])
 
         logger.info(
-            f"VI complete. Final ELBO loss: {svi_result.losses[-1]:.4f}, "
-            f"{vi_config.num_samples} posterior samples drawn."
+            "VI complete. Final ELBO loss: %.4f, %d posterior samples drawn.",
+            svi_result.losses[-1],
+            vi_config.num_samples,
         )
         return idata
 
@@ -158,8 +162,8 @@ class Inference:
         self,
         rng_key: jax.random.PRNGKey,
         observed_data: jnp.ndarray,
-        extra_args: Optional[Dict[str, Any]] = None,
-        init_params: Optional[Dict[str, Any]] = None,
+        extra_args: Optional[dict[str, Any]] = None,
+        init_params: Optional[dict[str, Any]] = None,
     ) -> az.InferenceData:
         """Run MCMC inference using the NUTS sampler.
 
@@ -177,7 +181,6 @@ class Inference:
 
         nuts_cfg = self.config.nuts_config or NUTSConfig()
 
-        # init_to_uniform is robust for unbounded distributions where init_to_median may fail
         if init_params is not None:
             init_strategy = numpyro.infer.init_to_value(values=init_params)
         else:
@@ -196,8 +199,10 @@ class Inference:
         )
 
         logger.info(
-            f"Running MCMC: {nuts_cfg.warmup} warmup, "
-            f"{nuts_cfg.samples} samples, {nuts_cfg.chains} chain(s)..."
+            "Running MCMC: %d warmup, %d samples, %d chain(s)...",
+            nuts_cfg.warmup,
+            nuts_cfg.samples,
+            nuts_cfg.chains,
         )
         mcmc.run(rng_key, observed_data=observed_data, **extra_args)
         mcmc.print_summary()
@@ -208,8 +213,8 @@ class Inference:
         self,
         rng_key: jax.random.PRNGKey,
         observed_data: jnp.ndarray,
-        extra_args: Optional[Dict[str, Any]] = None,
-        init_params: Optional[Dict[str, Any]] = None,
+        extra_args: Optional[dict[str, Any]] = None,
+        init_params: Optional[dict[str, Any]] = None,
     ) -> az.InferenceData:
         """Run inference pipeline, dispatching on the configured method.
 
@@ -237,15 +242,15 @@ class Inference:
 
         # NUTS: optional MAP init then MCMC
         nuts_cfg = self.config.nuts_config or NUTSConfig()
-        init_params = None
+        mcmc_init = init_params
         if nuts_cfg.map_init is not None and nuts_cfg.map_init.enabled:
             map_key, rng_key = jax.random.split(rng_key)
-            init_params = self.run_map(
+            mcmc_init = self.run_map(
                 map_key, observed_data, extra_args, nuts_cfg.map_init
             )
-        else:
+        elif mcmc_init is None:
             logger.info("Skipping MAP initialization.")
 
-        idata = self.run_mcmc(rng_key, observed_data, extra_args, init_params)
+        idata = self.run_mcmc(rng_key, observed_data, extra_args, mcmc_init)
         idata.posterior.attrs["inference_method"] = "nuts"
         return idata

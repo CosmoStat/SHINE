@@ -683,16 +683,17 @@ class EuclidDataLoader:
         psf_half = psf_stamp_size / 2.0
         needed_stamp = 2 * (3 * hlr_pix + psf_half)
 
-        stamp_tier = np.full(n_src, len(stamp_sizes) - 1, dtype=np.int32)
-        for t in range(len(stamp_sizes) - 1, -1, -1):
+        n_tiers = len(stamp_sizes)
+        stamp_tier = np.full(n_src, n_tiers - 1, dtype=np.int32)
+        for t in range(n_tiers - 1, -1, -1):
             stamp_tier[needed_stamp <= stamp_sizes[t]] = t
 
-        tier_counts = [int((stamp_tier == t).sum()) for t in range(len(stamp_sizes))]
+        tier_counts = [int((stamp_tier == t).sum()) for t in range(n_tiers)]
         logger.info(
             "  Stamp tier assignment: %s",
             ", ".join(
                 f"{stamp_sizes[t]}px: {tier_counts[t]}"
-                for t in range(len(stamp_sizes))
+                for t in range(n_tiers)
             ),
         )
 

@@ -1,7 +1,7 @@
 # Euclid VIS multi-exposure shear inference — NGC 6505 test data
 #
 # Points to the bundled test data in data/EUC_VIS_SWL/.
-# Selects the 10 brightest sources and runs MAP inference for quick testing.
+# Selects the 600 brightest sources and runs MAP inference for quick testing.
 
 data:
   exposure_paths:
@@ -18,11 +18,13 @@ data:
   pixel_scale: 0.1
 
 sources:
-  min_snr: 50.0
+  min_snr: 10.0
   require_vis_detected: true
   exclude_spurious: true
   exclude_deblended: false
-  max_sources: 10
+  exclude_point_sources: true
+  det_quality_exclude_mask: 0x78C
+  max_sources: 600
 
 priors:
   shear_prior_sigma: 0.05
@@ -35,11 +37,10 @@ inference:
   method: map
   map_config:
     enabled: true
-    num_steps: 500
-    learning_rate: 0.01
+    num_steps: 200
+    learning_rate: 0.002
   rng_seed: 42
 
-galaxy_stamp_size: 64
-fft_size: 128
+galaxy_stamp_sizes: [64, 128, 256]
 background: fixed
 output_dir: results/euclid

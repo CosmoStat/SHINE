@@ -35,7 +35,7 @@ pytestmark = [
 
 
 @pytest.fixture(scope="module")
-def small_config():
+def map_config():
     """Build a small EuclidInferenceConfig for MAP inference on 3 sources."""
     exposure_paths = sorted(
         str(p) for p in DATA_DIR.glob("EUC_VIS_SWL-DET-*_3-4-F.fits.gz")
@@ -61,11 +61,11 @@ def small_config():
 
 
 @pytest.fixture(scope="module")
-def exposure_set(small_config):
-    """Load the small ExposureSet."""
+def map_exposure_set(map_config):
+    """Load the small ExposureSet for MAP testing."""
     from shine.euclid.data_loader import EuclidDataLoader
 
-    return EuclidDataLoader(small_config).load()
+    return EuclidDataLoader(map_config).load()
 
 
 # ---------------------------------------------------------------------------
@@ -75,18 +75,18 @@ def exposure_set(small_config):
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_euclid_map_inference(small_config, exposure_set):
+def test_euclid_map_inference(map_config, map_exposure_set):
     """Smoke test: run MAP inference on 3 bright sources and verify
     the result contains g1 and g2 estimates."""
     from shine.euclid.scene import MultiExposureScene
     from shine.inference import Inference
 
-    scene = MultiExposureScene(small_config, exposure_set)
+    scene = MultiExposureScene(map_config, map_exposure_set)
     model = scene.build_model()
 
-    engine = Inference(model, small_config.inference)
+    engine = Inference(model, map_config.inference)
     rng = jax.random.PRNGKey(42)
-    idata = engine.run(rng, observed_data=exposure_set.images)
+    idata = engine.run(rng, observed_data=map_exposure_set.images)
 
     assert "posterior" in idata.groups()
     assert "g1" in idata.posterior

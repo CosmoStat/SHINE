@@ -336,6 +336,80 @@ class MultiExposureScene:
         self.config = config
         self.data = exposure_set
 
+    def _prepare_tier_indices(self, label: str) -> tuple[list[int], float, list[jnp.ndarray]]:
+        """Pre-compute tier indices and log tier summary.
+
+        Args:
+            label: Human-readable label for the log message
+                (e.g. "multi-exposure" or "single-exposure 0").
+
+        Returns:
+            Tuple of ``(stamp_sizes, pixel_scale, tier_indices)``.
+        """
+        stamp_sizes = self.config.galaxy_stamp_sizes
+        pixel_scale = self.config.data.pixel_scale
+        tier_indices = _compute_tier_indices(
+            self.data.source_stamp_tier, len(stamp_sizes)
+        )
+
+        tier_str = ", ".join(
+            f"{stamp_sizes[t]}px: {tier_indices[t].shape[0]}"
+            for t in range(len(stamp_sizes))
+        )
+        logger.info(
+            "Building %s model: %d sources, tiers=[%s]",
+            label,
+            self.data.n_sources,
+            tier_str,
+        )
+        return stamp_sizes, pixel_scale, tier_indices
+
+    def _sample_parameters(self) -> tuple:
+        """Sample global shear and per-source parameters.
+
+        Returns:
+            Tuple ``(g1, g2, flux, hlr, e1, e2, dx, dy)``.
+        """
+        priors = self.config.priors
+        data = self.data
+
+        g1 = numpyro.sample(
+            "g1", dist.Normal(0.0, priors.shear_prior_sigma)
+        )
+        g2 = numpyro.sample(
+            "g2", dist.Normal(0.0, priors.shear_prior_sigma)
+        )
+
+        with numpyro.plate("sources", data.n_sources):
+            flux = numpyro.sample(
+                "flux",
+                dist.LogNormal(
+                    jnp.log(data.catalog_flux_adu),
+                    priors.flux_prior_log_sigma,
+                ),
+            )
+            hlr = numpyro.sample(
+                "hlr",
+                dist.LogNormal(
+                    jnp.log(data.catalog_hlr_arcsec),
+                    priors.hlr_prior_log_sigma,
+                ),
+            )
+            e1 = numpyro.sample(
+                "e1", dist.Normal(0.0, priors.ellipticity_prior_sigma)
+            )
+            e2 = numpyro.sample(
+                "e2", dist.Normal(0.0, priors.ellipticity_prior_sigma)
+            )
+            dx = numpyro.sample(
+                "dx", dist.Normal(0.0, priors.position_prior_sigma)
+            )
+            dy = numpyro.sample(
+                "dy", dist.Normal(0.0, priors.position_prior_sigma)
+            )
+
+        return g1, g2, flux, hlr, e1, e2, dx, dy
+
     def build_model(self) -> Callable:
         """Build the multi-exposure NumPyro model.
 
@@ -345,26 +419,10 @@ class MultiExposureScene:
             to ``numpyro.infer.MCMC`` or ``numpyro.infer.SVI``.
         """
         data = self.data
-        priors = self.config.priors
-        stamp_sizes = self.config.galaxy_stamp_sizes
-        pixel_scale = self.config.data.pixel_scale
-
-        # Pre-compute tier indices (concrete arrays, captured by closure).
-        tier_indices = _compute_tier_indices(
-            data.source_stamp_tier, len(stamp_sizes)
+        stamp_sizes, pixel_scale, tier_indices = self._prepare_tier_indices(
+            f"{data.n_exposures}-exposure"
         )
-
-        tier_str = ", ".join(
-            f"{stamp_sizes[t]}px: {tier_indices[t].shape[0]}"
-            for t in range(len(stamp_sizes))
-        )
-        logger.info(
-            "Building multi-exposure model: %d sources, %d exposures, "
-            "tiers=[%s]",
-            data.n_sources,
-            data.n_exposures,
-            tier_str,
-        )
+        sample_parameters = self._sample_parameters
 
         def model(
             observed_data: Optional[jnp.ndarray] = None, **extra_args
@@ -376,44 +434,8 @@ class MultiExposureScene:
                     Pass ``None`` for prior predictive sampling.
                 **extra_args: Reserved for future use.
             """
-            # 1. Global shear
-            g1 = numpyro.sample(
-                "g1", dist.Normal(0.0, priors.shear_prior_sigma)
-            )
-            g2 = numpyro.sample(
-                "g2", dist.Normal(0.0, priors.shear_prior_sigma)
-            )
+            g1, g2, flux, hlr, e1, e2, dx, dy = sample_parameters()
 
-            # 2. Per-source parameters
-            with numpyro.plate("sources", data.n_sources):
-                flux = numpyro.sample(
-                    "flux",
-                    dist.LogNormal(
-                        jnp.log(data.catalog_flux_adu),
-                        priors.flux_prior_log_sigma,
-                    ),
-                )
-                hlr = numpyro.sample(
-                    "hlr",
-                    dist.LogNormal(
-                        jnp.log(data.catalog_hlr_arcsec),
-                        priors.hlr_prior_log_sigma,
-                    ),
-                )
-                e1 = numpyro.sample(
-                    "e1", dist.Normal(0.0, priors.ellipticity_prior_sigma)
-                )
-                e2 = numpyro.sample(
-                    "e2", dist.Normal(0.0, priors.ellipticity_prior_sigma)
-                )
-                dx = numpyro.sample(
-                    "dx", dist.Normal(0.0, priors.position_prior_sigma)
-                )
-                dy = numpyro.sample(
-                    "dy", dist.Normal(0.0, priors.position_prior_sigma)
-                )
-
-            # 3. Per-exposure rendering and likelihood
             for j in range(data.n_exposures):
                 _render_exposure_likelihood(
                     j, g1, g2, flux, hlr, e1, e2, dx, dy,
@@ -449,25 +471,10 @@ class MultiExposureScene:
             )
 
         data = self.data
-        priors = self.config.priors
-        stamp_sizes = self.config.galaxy_stamp_sizes
-        pixel_scale = self.config.data.pixel_scale
-
-        tier_indices = _compute_tier_indices(
-            data.source_stamp_tier, len(stamp_sizes)
+        stamp_sizes, pixel_scale, tier_indices = self._prepare_tier_indices(
+            f"single-exposure {exposure_idx}"
         )
-
-        tier_str = ", ".join(
-            f"{stamp_sizes[t]}px: {tier_indices[t].shape[0]}"
-            for t in range(len(stamp_sizes))
-        )
-        logger.info(
-            "Building single-exposure model: %d sources, exposure %d, "
-            "tiers=[%s]",
-            data.n_sources,
-            exposure_idx,
-            tier_str,
-        )
+        sample_parameters = self._sample_parameters
 
         def model(
             observed_data: Optional[jnp.ndarray] = None, **extra_args
@@ -479,40 +486,7 @@ class MultiExposureScene:
                     Pass ``None`` for prior predictive sampling.
                 **extra_args: Reserved for future use.
             """
-            g1 = numpyro.sample(
-                "g1", dist.Normal(0.0, priors.shear_prior_sigma)
-            )
-            g2 = numpyro.sample(
-                "g2", dist.Normal(0.0, priors.shear_prior_sigma)
-            )
-
-            with numpyro.plate("sources", data.n_sources):
-                flux = numpyro.sample(
-                    "flux",
-                    dist.LogNormal(
-                        jnp.log(data.catalog_flux_adu),
-                        priors.flux_prior_log_sigma,
-                    ),
-                )
-                hlr = numpyro.sample(
-                    "hlr",
-                    dist.LogNormal(
-                        jnp.log(data.catalog_hlr_arcsec),
-                        priors.hlr_prior_log_sigma,
-                    ),
-                )
-                e1 = numpyro.sample(
-                    "e1", dist.Normal(0.0, priors.ellipticity_prior_sigma)
-                )
-                e2 = numpyro.sample(
-                    "e2", dist.Normal(0.0, priors.ellipticity_prior_sigma)
-                )
-                dx = numpyro.sample(
-                    "dx", dist.Normal(0.0, priors.position_prior_sigma)
-                )
-                dy = numpyro.sample(
-                    "dy", dist.Normal(0.0, priors.position_prior_sigma)
-                )
+            g1, g2, flux, hlr, e1, e2, dx, dy = sample_parameters()
 
             _render_exposure_likelihood(
                 exposure_idx, g1, g2, flux, hlr, e1, e2, dx, dy,
@@ -554,21 +528,17 @@ def render_model_images(
         data.source_stamp_tier, len(stamp_sizes)
     )
 
-    g1 = jnp.asarray(params["g1"])
-    g2 = jnp.asarray(params["g2"])
-    flux = jnp.asarray(params["flux"])
-    hlr = jnp.asarray(params["hlr"])
-    e1 = jnp.asarray(params["e1"])
-    e2 = jnp.asarray(params["e2"])
-    dx = jnp.asarray(params["dx"])
-    dy = jnp.asarray(params["dy"])
+    param_names = ("g1", "g2", "flux", "hlr", "e1", "e2", "dx", "dy")
+    g1, g2, flux, hlr, e1, e2, dx, dy = (
+        jnp.asarray(params[k]) for k in param_names
+    )
 
-    images = []
-    for j in range(data.n_exposures):
-        img = _render_exposure_image(
+    images = [
+        _render_exposure_image(
             j, g1, g2, flux, hlr, e1, e2, dx, dy,
             data, pixel_scale, stamp_sizes, tier_indices,
         )
-        images.append(img)
+        for j in range(data.n_exposures)
+    ]
 
     return jnp.stack(images, axis=0)
