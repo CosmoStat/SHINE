@@ -145,16 +145,17 @@ Total: ~60,000 MER tiles × 16 sub-tiles = ~960,000 independent GPU jobs
 
 ### 3.1 Overview
 
-For each MER tile, the data preparation stage:
+For each MER tile, the data preparation pipeline:
 
 1. Queries the Euclid archive for all VIS quadrant exposures overlapping
    the tile footprint.
-2. Loads each overlapping quadrant as-is (science, RMS, flag images at
-   full 2048 × 2066 resolution).
-3. Loads the MER source catalog for the tile.
-4. Partitions sources into sub-tiles based on sky position.
-5. For each sub-tile, assembles an `ExposureSet` from the full quadrant
-   images and the sub-tile's source list.
+2. Loads the MER source catalog for the tile.
+3. Partitions sources into sub-tiles based on sky position (core +
+   extended membership).
+4. For each sub-tile, records which quadrant FITS files overlap its
+   extended area and writes a manifest to disk.
+5. At inference time (Stage 2), each sub-tile job loads its quadrant
+   images as-is and assembles an `ExposureSet`.
 
 ### 3.2 Quadrant Discovery
 
@@ -249,18 +250,7 @@ nor MCMC posterior geometry.
 
 ## 4. Code Modifications
 
-### 4.1 No Changes to ExposureSet
-
-Because quadrants are loaded as-is at their native 2048 × 2066
-resolution, all "exposures" in a sub-tile share the same image
-dimensions.  The existing `ExposureSet` dataclass with its stacked
-`(n_exp, ny, nx)` arrays works without any modification.
-
-The only new logic is in the data loader, which now discovers and loads
-quadrants from multiple CCDs rather than a single CCD across dithered
-pointings.
-
-### 4.2 Visibility-Aware Source Filtering
+### 4.1 Visibility-Aware Source Filtering
 
 **Current state.**  `_render_tier` vmaps `render_one_galaxy` over all
 sources in a stamp-size tier for every exposure, using `source_visible`
@@ -315,7 +305,7 @@ invisible source-exposure pairs.  The index arrays are static constants
 with shapes fixed at data preparation time — there is nothing dynamic
 during inference, and no impact on JIT compilation.
 
-### 4.3 Exposure Terminology
+### 4.2 Exposure Terminology
 
 In the distributed setting, the meaning of "exposure" shifts:
 
@@ -326,12 +316,6 @@ In the distributed setting, the meaning of "exposure" shifts:
 | Image shape | Uniform (2048 × 2066) | Uniform (2048 × 2066) |
 | Same CCD across dithers? | Yes (same quadrant ID) | No (different CCDs may cover the same sky region) |
 | PSF model per exposure | Single grid (one quadrant) | Different grid per quadrant (from different CCDs) |
-
-The `ExposureSet` data structure and the rendering loop generalize
-without change: each "exposure" is simply one full quadrant image (from
-one CCD of one pointing) with its associated PSF, WCS, and noise map.
-The only difference is how the data loader discovers and selects the
-quadrants.
 
 ---
 
@@ -352,7 +336,8 @@ overlapping light profiles.
 ### 5.2 Solution: Core / Extended Areas
 
 Following the same pattern used by the Euclid MER pipeline at the tile
-level, each sub-tile defines two concentric areas:
+level, each sub-tile defines two concentric areas (sizes from
+Section 2.2):
 
 ```
 ┌───────────────────────────┐
@@ -370,22 +355,14 @@ level, each sub-tile defines two concentric areas:
 └───────────────────────────┘
 ```
 
-- **Extended area** (10' × 10'): all sources within this footprint are
-  included in the `ExposureSet` and modeled during inference.
+Sources in the **extended area** are modeled during inference; results
+are reported only for **core area** sources.  Overlap-margin sources
+are modeled by adjacent sub-tiles independently and serve only to
+ensure the scene model is complete near the boundary.
 
-- **Core area** (8' × 8'): only sources within this footprint have their
-  inferred parameters (shear, flux, size, ellipticity, position)
-  written to the output catalog.
-
-- **Overlap margin** (1' per side = 600 px at 0.1"/px): sources in this
-  border are modeled by adjacent sub-tiles independently.  Their
-  inferred parameters are discarded — they serve only to ensure the
-  scene model is complete near the boundary.
-
-Note that the quadrant images themselves extend well beyond the sub-tile
-footprint (a full quadrant covers ~3.4' × 3.4').  This is fine — the
-model only renders sources in the extended area, and pixels far from any
-modeled source contribute zero gradient to the likelihood (Section 3.6).
+Note that the quadrant images extend well beyond the sub-tile footprint
+(a full quadrant covers ~3.4' × 3.4').  Pixels far from any modeled
+source contribute zero gradient to the likelihood (Section 3.6).
 
 ### 5.3 Margin Sizing
 
@@ -624,7 +601,7 @@ shine/
 ├── euclid/
 │   ├── config.py                   # Extended with distributed section
 │   ├── data_loader.py              # Generalized to load multiple CCDs
-│   ├── scene.py                    # Visibility filtering added (§4.2)
+│   ├── scene.py                    # Visibility filtering added (§4.1)
 │   └── plots.py                    # Unchanged
 ├── config.py                       # Unchanged
 ├── inference.py                    # Unchanged
@@ -641,15 +618,12 @@ shine/
 - Assign sources to sub-tiles (core and extended membership).
 
 **`shine.distributed.subtile_loader`**
-- Given a sub-tile sky footprint, discover all overlapping quadrant FITS
-  files.
-- Load full quadrant images and PSF grids (unmodified).
-- For each source in the sub-tile's extended area, project its sky
-  position onto each quadrant's pixel coordinates, evaluate the local
-  WCS Jacobian, interpolate the PSF, and determine visibility.
-- Assemble the `ExposureSet`.  This reuses the same per-source metadata
-  computation as the existing `EuclidDataLoader._compute_source_metadata`
-  but operates across quadrants from different CCDs.
+- Implements the per-sub-tile data preparation described in
+  Sections 3.2–3.5: discovers overlapping quadrants, loads them
+  as-is, projects sources onto each quadrant's native coordinates,
+  and assembles the `ExposureSet`.
+- Reuses the same per-source metadata computation as the existing
+  `EuclidDataLoader._compute_source_metadata`.
 
 **`shine.distributed.orchestrator`**
 - Generate SLURM job scripts or array jobs for batch processing.
@@ -671,9 +645,7 @@ shine/
 
 - Implement `tiling.py`: MER tile footprint lookup, sub-tile grid
   generation, source partitioning.
-- Implement `subtile_loader.py`: discover overlapping quadrants, load
-  them as-is, project sources onto each quadrant's native coordinates,
-  assemble `ExposureSet`.
+- Implement `subtile_loader.py` (Section 9.1).
 - **Validation**: verify that a sub-tile `ExposureSet` built from
   multiple CCD quadrants produces correct MAP results when applied to
   the existing test data region (same quadrant loaded as one of several
@@ -682,7 +654,7 @@ shine/
 ### Phase 2: Visibility Filtering
 
 - Add visibility-aware source filtering to `_render_tier` in `scene.py`
-  (Section 4.2).
+  (Section 4.1).
 - Benchmark rendering time with and without filtering at sub-tile scale.
 - **Validation**: confirm that filtered and unfiltered rendering produce
   identical model images (within floating-point tolerance).
@@ -816,8 +788,9 @@ AWS Batch automatically retries interrupted jobs on fresh instances.
 
 Three job definitions corresponding to the three pipeline stages:
 
-- **Tile preparation** (CPU): reads quadrant FITS data from S3,
-  partitions sources, writes per-sub-tile manifests to S3.
+- **Tile preparation** (CPU): queries the archive for overlapping
+  quadrant paths, partitions sources, writes per-sub-tile manifests
+  to S3.
 - **Sub-tile inference** (GPU): loads full quadrant images from S3
   (unmodified), builds ExposureSet, runs MAP/VI/NUTS, writes results
   to S3.
