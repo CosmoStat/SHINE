@@ -99,8 +99,28 @@ Supported distributions:
 | Type | Parameters | Description |
 |------|-----------|-------------|
 | `Normal` | `mean`, `sigma` | Gaussian prior |
-| `LogNormal` | `mean`, `sigma` | Log-normal prior |
+| `LogNormal` | `mean`, `sigma` | Log-normal prior (`mean` is the median) |
 | `Uniform` | `min`, `max` | Uniform prior |
+
+#### Catalog-centered priors
+
+For instrument-specific backends (e.g. Euclid) where per-source catalog
+measurements are available, any `Normal` or `LogNormal` distribution can be
+centered on catalog values by using `center: catalog` instead of a fixed `mean`:
+
+```yaml
+flux:
+  type: LogNormal
+  center: catalog    # median comes from each source's catalog flux at runtime
+  sigma: 0.5
+```
+
+When `center: catalog` is set, the `mean` field is ignored. The scene builder
+resolves the location parameter from the data catalog at runtime:
+
+- **LogNormal**: `LogNormal(log(catalog_value_i), sigma)` — the catalog value
+  is the median
+- **Normal**: `Normal(catalog_value_i, sigma)` — the catalog value is the mean
 
 ### Shear
 
@@ -140,8 +160,10 @@ gal:
 
 ### Position
 
-Galaxy position priors. Values < 1 are treated as fractions of image size;
-values >= 1 are absolute pixel coordinates.
+Galaxy position priors support two modes:
+
+**Uniform (absolute positions)** — values < 1 are treated as fractions of image
+size; values >= 1 are absolute pixel coordinates.
 
 ```yaml
 gal:
@@ -151,6 +173,24 @@ gal:
     x_max: 0.7    # 70% from left edge
     y_min: 0.3
     y_max: 0.7
+```
+
+**Offset (from catalog positions)** — small offsets from known catalog
+positions, typically used with instrument backends where source positions
+come from a detection catalog.
+
+```yaml
+gal:
+  position:
+    type: Offset
+    dx:
+      type: Normal
+      mean: 0.0
+      sigma: 0.05     # arcsec
+    dy:
+      type: Normal
+      mean: 0.0
+      sigma: 0.05
 ```
 
 ## Inference Section
@@ -245,7 +285,9 @@ inference:
 | `method` | `"nuts"` / `"map"` / `"vi"` | `"nuts"` | Inference method |
 | `rng_seed` | int >= 0 | `0` | JAX PRNG seed |
 
-## Complete Example
+## Complete Examples
+
+### Level 0 — simple validation config
 
 ```yaml
 image:
@@ -295,4 +337,51 @@ inference:
       num_steps: 1000
       learning_rate: 0.01
   rng_seed: 42
+```
+
+### Euclid VIS — instrument backend config
+
+The Euclid config uses the same `gal:` schema but with `center: catalog`
+priors and `Offset` positions.  The `data:` and `sources:` sections are
+specific to the Euclid backend (`EuclidInferenceConfig`).
+
+```yaml
+data:
+  exposure_paths:
+    - data/EUC_VIS_SWL/EUC_VIS_SWL-DET-..._3-4-F.fits.gz
+  psf_path: data/EUC_VIS_SWL/PSF_3-4-F.fits.gz
+  catalog_path: data/EUC_VIS_SWL/catalogue_3-4-F.fits.gz
+  pixel_scale: 0.1
+
+sources:
+  min_snr: 10.0
+  max_sources: 600
+
+gal:
+  type: Exponential
+  shear:
+    type: G1G2
+    g1: {type: Normal, mean: 0.0, sigma: 0.05}
+    g2: {type: Normal, mean: 0.0, sigma: 0.05}
+  flux: {type: LogNormal, center: catalog, sigma: 0.5}
+  half_light_radius: {type: LogNormal, center: catalog, sigma: 0.3}
+  ellipticity:
+    type: E1E2
+    e1: {type: Normal, mean: 0.0, sigma: 0.3}
+    e2: {type: Normal, mean: 0.0, sigma: 0.3}
+  position:
+    type: Offset
+    dx: {type: Normal, mean: 0.0, sigma: 0.05}
+    dy: {type: Normal, mean: 0.0, sigma: 0.05}
+
+inference:
+  method: map
+  map_config:
+    enabled: true
+    num_steps: 200
+    learning_rate: 0.002
+  rng_seed: 42
+
+galaxy_stamp_sizes: [64, 128, 256]
+background: fixed
 ```
