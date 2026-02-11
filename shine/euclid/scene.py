@@ -23,6 +23,7 @@ import numpyro
 import numpyro.distributions as dist
 
 from shine.euclid.config import EuclidInferenceConfig
+from shine.prior_utils import parse_prior
 
 logger = logging.getLogger(__name__)
 
@@ -365,48 +366,46 @@ class MultiExposureScene:
         return stamp_sizes, pixel_scale, tier_indices
 
     def _sample_parameters(self) -> tuple:
-        """Sample global shear and per-source parameters.
+        """Sample global shear and per-source parameters from config.
+
+        Prior distributions are read from ``self.config.gal`` (a
+        :class:`~shine.config.GalaxyConfig`).  Parameters with
+        ``center="catalog"`` use the per-source catalog values stored
+        in ``self.data`` as the distribution location.
 
         Returns:
             Tuple ``(g1, g2, flux, hlr, e1, e2, dx, dy)``.
         """
-        priors = self.config.priors
+        gal_cfg = self.config.gal
         data = self.data
 
-        g1 = numpyro.sample(
-            "g1", dist.Normal(0.0, priors.shear_prior_sigma)
-        )
-        g2 = numpyro.sample(
-            "g2", dist.Normal(0.0, priors.shear_prior_sigma)
-        )
+        # Global shear
+        g1 = parse_prior("g1", gal_cfg.shear.g1)
+        g2 = parse_prior("g2", gal_cfg.shear.g2)
 
         with numpyro.plate("sources", data.n_sources):
-            flux = numpyro.sample(
-                "flux",
-                dist.LogNormal(
-                    jnp.log(data.catalog_flux_adu),
-                    priors.flux_prior_log_sigma,
-                ),
+            flux = parse_prior(
+                "flux", gal_cfg.flux,
+                catalog_values=data.catalog_flux_adu,
             )
-            hlr = numpyro.sample(
-                "hlr",
-                dist.LogNormal(
-                    jnp.log(data.catalog_hlr_arcsec),
-                    priors.hlr_prior_log_sigma,
-                ),
+            hlr = parse_prior(
+                "hlr", gal_cfg.half_light_radius,
+                catalog_values=data.catalog_hlr_arcsec,
             )
-            e1 = numpyro.sample(
-                "e1", dist.Normal(0.0, priors.ellipticity_prior_sigma)
-            )
-            e2 = numpyro.sample(
-                "e2", dist.Normal(0.0, priors.ellipticity_prior_sigma)
-            )
-            dx = numpyro.sample(
-                "dx", dist.Normal(0.0, priors.position_prior_sigma)
-            )
-            dy = numpyro.sample(
-                "dy", dist.Normal(0.0, priors.position_prior_sigma)
-            )
+
+            # Intrinsic ellipticity
+            e1 = 0.0
+            e2 = 0.0
+            if gal_cfg.ellipticity is not None:
+                e1 = parse_prior("e1", gal_cfg.ellipticity.e1)
+                e2 = parse_prior("e2", gal_cfg.ellipticity.e2)
+
+            # Position offsets
+            dx = 0.0
+            dy = 0.0
+            if gal_cfg.position is not None and gal_cfg.position.type == "Offset":
+                dx = parse_prior("dx", gal_cfg.position.dx)
+                dy = parse_prior("dy", gal_cfg.position.dy)
 
         return g1, g2, flux, hlr, e1, e2, dx, dy
 

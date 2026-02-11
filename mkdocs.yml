@@ -15,6 +15,7 @@ nav:
     - GPU-Batched Inference: validation/batched.md
   - API Reference:
     - shine.config: api/config.md
+    - shine.prior_utils: api/prior_utils.md
     - shine.scene: api/scene.md
     - shine.inference: api/inference.md
     - shine.data: api/data.md

@@ -17,6 +17,7 @@ from shine.config import (
     NoiseConfig,
     NUTSConfig,
     PSFConfig,
+    PositionConfig,
     ShearConfig,
     ShineConfig,
     VIConfig,
@@ -405,4 +406,76 @@ class TestConfigHandler:
             assert config.gal.half_light_radius.min == 0.5
         finally:
             Path(tmp_path).unlink()
+
+
+class TestDistributionConfigCenter:
+    """Test DistributionConfig catalog-centered priors."""
+
+    def test_lognormal_center_catalog(self):
+        """LogNormal with center='catalog' is valid without mean."""
+        cfg = DistributionConfig(type="LogNormal", center="catalog", sigma=0.5)
+        assert cfg.center == "catalog"
+        assert cfg.sigma == 0.5
+
+    def test_normal_center_catalog(self):
+        """Normal with center='catalog' is valid without mean."""
+        cfg = DistributionConfig(type="Normal", center="catalog", sigma=0.1)
+        assert cfg.center == "catalog"
+
+    def test_invalid_center_value(self):
+        """Invalid center value raises error."""
+        with pytest.raises(ValueError, match="center must be 'catalog'"):
+            DistributionConfig(type="Normal", center="data", sigma=0.1)
+
+    def test_catalog_center_without_sigma_raises(self):
+        """center='catalog' without sigma raises error."""
+        with pytest.raises(ValueError, match="requires 'sigma'"):
+            DistributionConfig(type="LogNormal", center="catalog")
+
+    def test_normal_without_center_still_requires_mean(self):
+        """Normal without center still requires mean."""
+        with pytest.raises(ValueError, match="requires 'mean' and 'sigma'"):
+            DistributionConfig(type="Normal", sigma=0.1)
+
+
+class TestPositionConfigOffset:
+    """Test PositionConfig with Offset type."""
+
+    def test_offset_with_distributions(self):
+        """Offset position with distributions is valid."""
+        dx = DistributionConfig(type="Normal", mean=0.0, sigma=0.05)
+        dy = DistributionConfig(type="Normal", mean=0.0, sigma=0.05)
+        cfg = PositionConfig(type="Offset", dx=dx, dy=dy)
+        assert cfg.type == "Offset"
+        assert isinstance(cfg.dx, DistributionConfig)
+        assert isinstance(cfg.dy, DistributionConfig)
+
+    def test_offset_with_fixed_values(self):
+        """Offset position with fixed values is valid."""
+        cfg = PositionConfig(type="Offset", dx=0.0, dy=0.0)
+        assert cfg.dx == 0.0
+        assert cfg.dy == 0.0
+
+    def test_offset_missing_dx_raises(self):
+        """Offset without dx raises error."""
+        with pytest.raises(ValueError, match="requires 'dx' and 'dy'"):
+            PositionConfig(type="Offset", dy=0.0)
+
+    def test_offset_missing_dy_raises(self):
+        """Offset without dy raises error."""
+        with pytest.raises(ValueError, match="requires 'dx' and 'dy'"):
+            PositionConfig(type="Offset", dx=0.0)
+
+    def test_invalid_type_raises(self):
+        """Invalid position type raises error."""
+        with pytest.raises(ValueError, match="must be 'Uniform' or 'Offset'"):
+            PositionConfig(type="Grid")
+
+    def test_uniform_still_works(self):
+        """Uniform position type still works as before."""
+        cfg = PositionConfig(
+            type="Uniform", x_min=10.0, x_max=20.0, y_min=10.0, y_max=20.0
+        )
+        assert cfg.type == "Uniform"
+        assert cfg.x_min == 10.0
 
