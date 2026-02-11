@@ -8,14 +8,25 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 class DistributionConfig(BaseModel):
     """Configuration for probability distributions used as priors.
 
-    Supports Normal, LogNormal, and Uniform distributions with appropriate parameters.
+    Supports Normal, LogNormal, and Uniform distributions with appropriate
+    parameters.
+
+    When ``center`` is ``"catalog"``, the location parameter (mean for
+    Normal, median for LogNormal) is resolved at runtime from per-source
+    catalog data rather than from the static ``mean`` field.
 
     Attributes:
         type: Distribution type (e.g., 'Normal', 'LogNormal', 'Uniform').
         mean: Mean parameter for Normal/LogNormal distributions.
+            For LogNormal this is the *median* (natural-space value);
+            internally ``log(mean)`` is used as the log-space location.
+            Optional when ``center="catalog"``.
         sigma: Standard deviation for Normal/LogNormal distributions.
         min: Lower bound for Uniform distributions.
         max: Upper bound for Uniform distributions.
+        center: Optional centering strategy.  ``"catalog"`` means the
+            location parameter comes from per-source catalog values at
+            runtime.  When set, ``mean`` is ignored.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -25,6 +36,7 @@ class DistributionConfig(BaseModel):
     sigma: Optional[float] = None
     min: Optional[float] = None
     max: Optional[float] = None
+    center: Optional[str] = None
 
     @field_validator("sigma")
     @classmethod
@@ -34,13 +46,42 @@ class DistributionConfig(BaseModel):
             raise ValueError(f"sigma must be positive, got {v}")
         return v
 
+    @field_validator("center")
+    @classmethod
+    def validate_center(cls, v: Optional[str]) -> Optional[str]:
+        """Validate that center is either None or 'catalog'."""
+        if v is not None and v != "catalog":
+            raise ValueError(
+                f"center must be 'catalog' or omitted, got '{v}'"
+            )
+        return v
+
     @model_validator(mode="after")
     def validate_distribution_params(self) -> "DistributionConfig":
         """Validate distribution type has required parameters."""
-        if self.type == "Normal" and (self.mean is None or self.sigma is None):
-            raise ValueError(
-                "Normal distribution requires 'mean' and 'sigma' parameters"
-            )
+        catalog_centered = self.center == "catalog"
+
+        if self.type == "Normal":
+            if not catalog_centered and (self.mean is None or self.sigma is None):
+                raise ValueError(
+                    "Normal distribution requires 'mean' and 'sigma' parameters "
+                    "(or set center='catalog' to use catalog values as mean)"
+                )
+            if catalog_centered and self.sigma is None:
+                raise ValueError(
+                    "Normal distribution with center='catalog' requires 'sigma'"
+                )
+
+        if self.type == "LogNormal":
+            if not catalog_centered and (self.mean is None or self.sigma is None):
+                raise ValueError(
+                    "LogNormal distribution requires 'mean' and 'sigma' parameters "
+                    "(or set center='catalog' to use catalog values as median)"
+                )
+            if catalog_centered and self.sigma is None:
+                raise ValueError(
+                    "LogNormal distribution with center='catalog' requires 'sigma'"
+                )
 
         if self.type == "Uniform" and (self.min is None or self.max is None):
             raise ValueError(
@@ -214,15 +255,23 @@ class EllipticityConfig(BaseModel):
 class PositionConfig(BaseModel):
     """Configuration for galaxy position priors.
 
-    Defines the prior distribution over galaxy positions in the image.
-    Values less than 1 are treated as fractions of image size, values >= 1 as pixels.
+    Supports two modes:
+
+    * ``type="Uniform"`` — absolute pixel positions drawn from a uniform
+      distribution.  Values less than 1 are treated as fractions of image
+      size, values >= 1 as pixels.
+    * ``type="Offset"`` — small position offsets (e.g. from catalog
+      positions) specified as ``dx`` and ``dy``, each of which can be a
+      fixed value or a :class:`DistributionConfig`.
 
     Attributes:
-        type: Distribution type for positions (default 'Uniform').
-        x_min: Minimum x position (fraction if < 1, pixels if >= 1).
-        x_max: Maximum x position (fraction if < 1, pixels if >= 1).
-        y_min: Minimum y position (fraction if < 1, pixels if >= 1).
-        y_max: Maximum y position (fraction if < 1, pixels if >= 1).
+        type: Position mode (``'Uniform'`` or ``'Offset'``).
+        x_min: Minimum x position (Uniform mode).
+        x_max: Maximum x position (Uniform mode).
+        y_min: Minimum y position (Uniform mode).
+        y_max: Maximum y position (Uniform mode).
+        dx: Position offset in x (Offset mode; fixed value or distribution).
+        dy: Position offset in y (Offset mode; fixed value or distribution).
     """
 
     type: str = "Uniform"
@@ -230,17 +279,37 @@ class PositionConfig(BaseModel):
     x_max: Optional[float] = None
     y_min: Optional[float] = None
     y_max: Optional[float] = None
+    dx: Optional[Union[float, DistributionConfig]] = None
+    dy: Optional[Union[float, DistributionConfig]] = None
 
     @model_validator(mode="after")
-    def validate_position_bounds(self) -> "PositionConfig":
-        """Validate that position bounds are consistent."""
-        if self.x_min is not None and self.x_max is not None and self.x_min >= self.x_max:
+    def validate_position_config(self) -> "PositionConfig":
+        """Validate position config based on type."""
+        if self.type == "Uniform":
+            if (
+                self.x_min is not None
+                and self.x_max is not None
+                and self.x_min >= self.x_max
+            ):
+                raise ValueError(
+                    f"x_min ({self.x_min}) must be less than x_max ({self.x_max})"
+                )
+            if (
+                self.y_min is not None
+                and self.y_max is not None
+                and self.y_min >= self.y_max
+            ):
+                raise ValueError(
+                    f"y_min ({self.y_min}) must be less than y_max ({self.y_max})"
+                )
+        elif self.type == "Offset":
+            if self.dx is None or self.dy is None:
+                raise ValueError(
+                    "Position type 'Offset' requires 'dx' and 'dy' fields"
+                )
+        else:
             raise ValueError(
-                f"x_min ({self.x_min}) must be less than x_max ({self.x_max})"
-            )
-        if self.y_min is not None and self.y_max is not None and self.y_min >= self.y_max:
-            raise ValueError(
-                f"y_min ({self.y_min}) must be less than y_max ({self.y_max})"
+                f"Position type must be 'Uniform' or 'Offset', got '{self.type}'"
             )
         return self
 

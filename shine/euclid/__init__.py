@@ -7,14 +7,12 @@ Euclid VIS quadrant-level shear inference.
 from shine.euclid.config import (
     EuclidDataConfig,
     EuclidInferenceConfig,
-    PriorConfig,
     SourceSelectionConfig,
 )
 
 __all__ = [
     "EuclidDataConfig",
     "SourceSelectionConfig",
-    "PriorConfig",
     "EuclidInferenceConfig",
     "EuclidPSFModel",
     "EuclidExposure",

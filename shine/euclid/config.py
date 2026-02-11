@@ -1,14 +1,24 @@
 """Pydantic configuration models for Euclid VIS shear inference.
 
 Provides structured, validated configuration for Euclid VIS data paths,
-source selection criteria, prior distributions, and inference settings.
+source selection criteria, galaxy model specification, and inference
+settings.  The galaxy model (priors, profile type) is specified via the
+shared :class:`~shine.config.GalaxyConfig`, making the probabilistic
+model explicit in the YAML configuration file.
 """
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
-from shine.config import InferenceConfig
+from shine.config import (
+    DistributionConfig,
+    EllipticityConfig,
+    GalaxyConfig,
+    InferenceConfig,
+    PositionConfig,
+    ShearConfig,
+)
 
 
 class EuclidDataConfig(BaseModel):
@@ -133,67 +143,54 @@ class SourceSelectionConfig(BaseModel):
         return v
 
 
-class PriorConfig(BaseModel):
-    """Prior distribution parameters for Bayesian inference.
+def _default_euclid_galaxy_config() -> GalaxyConfig:
+    """Build the default Euclid galaxy model specification.
 
-    Defines the width (sigma) of prior distributions on galaxy and
-    shear parameters. All priors are centered on catalog values or
-    zero (for shear).
-
-    Attributes:
-        shear_prior_sigma: Width of the shear prior (default 0.05).
-        flux_prior_log_sigma: Width of the log-flux prior (default 0.5).
-        hlr_prior_log_sigma: Width of the log-half-light-radius prior
-            (default 0.3).
-        ellipticity_prior_sigma: Width of the ellipticity prior
-            (default 0.3).
-        position_prior_sigma: Width of the position prior in arcsec
-            (default 0.05).
+    The default model uses catalog-centered LogNormal priors for flux and
+    half-light radius, Normal priors for shear and ellipticity, and
+    Normal offset priors for position.  This matches the priors that were
+    previously hard-coded in ``MultiExposureScene._sample_parameters()``.
     """
-
-    shear_prior_sigma: float = 0.05
-    flux_prior_log_sigma: float = 0.5
-    hlr_prior_log_sigma: float = 0.3
-    ellipticity_prior_sigma: float = 0.3
-    position_prior_sigma: float = 0.05
-
-    @field_validator(
-        "shear_prior_sigma",
-        "flux_prior_log_sigma",
-        "hlr_prior_log_sigma",
-        "ellipticity_prior_sigma",
-        "position_prior_sigma",
+    return GalaxyConfig(
+        type="Exponential",
+        flux=DistributionConfig(type="LogNormal", center="catalog", sigma=0.5),
+        half_light_radius=DistributionConfig(
+            type="LogNormal", center="catalog", sigma=0.3
+        ),
+        shear=ShearConfig(
+            type="G1G2",
+            g1=DistributionConfig(type="Normal", mean=0.0, sigma=0.05),
+            g2=DistributionConfig(type="Normal", mean=0.0, sigma=0.05),
+        ),
+        ellipticity=EllipticityConfig(
+            type="E1E2",
+            e1=DistributionConfig(type="Normal", mean=0.0, sigma=0.3),
+            e2=DistributionConfig(type="Normal", mean=0.0, sigma=0.3),
+        ),
+        position=PositionConfig(
+            type="Offset",
+            dx=DistributionConfig(type="Normal", mean=0.0, sigma=0.05),
+            dy=DistributionConfig(type="Normal", mean=0.0, sigma=0.05),
+        ),
     )
-    @classmethod
-    def validate_sigma_positive(cls, v: float, info) -> float:
-        """Validate that all prior sigma values are positive.
-
-        Args:
-            v: Sigma value to validate.
-            info: Pydantic field validation info.
-
-        Returns:
-            The validated sigma value.
-
-        Raises:
-            ValueError: If sigma is not positive.
-        """
-        if v <= 0:
-            raise ValueError(f"{info.field_name} must be positive, got {v}")
-        return v
 
 
 class EuclidInferenceConfig(BaseModel):
     """Top-level configuration for Euclid VIS shear inference.
 
-    Combines data paths, source selection, priors, and inference settings
-    into a single validated configuration. Reuses the base
-    ``shine.config.InferenceConfig`` for MCMC/VI settings.
+    Combines data paths, source selection, galaxy model specification,
+    and inference settings into a single validated configuration.  The
+    galaxy model (profile type, priors) is specified via the shared
+    :class:`~shine.config.GalaxyConfig`, making the probabilistic model
+    explicit in the YAML file.
 
     Attributes:
         data: Euclid data file paths and pixel settings.
         sources: Source selection and filtering criteria.
-        priors: Prior distribution parameters.
+        gal: Galaxy model specification (profile type, priors).
+            Defaults match the previously hard-coded Euclid priors:
+            catalog-centered LogNormal for flux/hlr, Normal for
+            shear/ellipticity, Normal offsets for position.
         inference: Base SHINE inference configuration (NUTS/MAP/VI).
         galaxy_stamp_sizes: Available rendering stamp tiers in pixels,
             sorted ascending (default ``[64, 128, 256]``).  Each source
@@ -208,7 +205,7 @@ class EuclidInferenceConfig(BaseModel):
 
     data: EuclidDataConfig
     sources: SourceSelectionConfig = SourceSelectionConfig()
-    priors: PriorConfig = PriorConfig()
+    gal: GalaxyConfig = Field(default_factory=_default_euclid_galaxy_config)
     inference: InferenceConfig = InferenceConfig()
     galaxy_stamp_sizes: List[int] = [64, 128, 256]
     background: Literal["fit", "median", "fixed"] = "median"

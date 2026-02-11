@@ -29,6 +29,7 @@ SHINE/
 ├── shine/                   # Main Python package
 │   ├── __init__.py
 │   ├── config.py            # Base inference configuration
+│   ├── prior_utils.py       # Shared prior-parsing (config → NumPyro sample sites)
 │   ├── inference.py         # Inference engine (MAP, NUTS)
 │   └── euclid/              # Euclid VIS instrument backend
 │       ├── config.py        # Euclid-specific configuration
@@ -55,7 +56,8 @@ SHINE/
 
 | Module | Status | Purpose |
 |--------|--------|---------|
-| `shine.config` | Implemented | Inference configuration (MAP, NUTS, VI settings) |
+| `shine.config` | Implemented | Configuration schema (galaxy model, inference, distributions with `center: catalog`) |
+| `shine.prior_utils` | Implemented | Shared prior-parsing: converts `DistributionConfig` → NumPyro sample sites |
 | `shine.inference` | Implemented | Inference engine (MAP optimization, NUTS via NumPyro) |
 | `shine.euclid` | Implemented | Euclid VIS instrument backend: data loading, scene model, diagnostics |
 | `shine.scene_modelling` | Planned | Generic NumPyro generative model definitions |
@@ -67,7 +69,7 @@ SHINE/
 
 The first instrument backend, providing end-to-end shear inference on Euclid VIS quadrant-level data:
 
-- **`config.py`** — Pydantic configuration: data paths, source selection (SNR, `det_quality_flag`, size filtering), prior distributions, multi-tier stamp sizes
+- **`config.py`** — Pydantic configuration: data paths, source selection (SNR, `det_quality_flag`, size filtering), galaxy model specification via shared `GalaxyConfig` (supports `center: catalog` priors), multi-tier stamp sizes
 - **`data_loader.py`** — Reads quadrant FITS files (SCI/RMS/FLG), PSF grids with bilinear interpolation, background maps, MER catalogs; computes per-source WCS positions, Jacobians, PSF stamps, and visibility
 - **`scene.py`** — NumPyro generative model: renders Sersic galaxies convolved with spatially-varying PSFs via JAX-GalSim; multi-tier stamp sizes (64/128/256 px) with separate `vmap` per tier; standalone `render_model_images()` for post-inference visualization
 - **`plots.py`** — 3-panel diagnostic figures (observed | model | chi residual) with configurable masking
@@ -119,6 +121,22 @@ Future testing should also include:
 ## Configuration Pattern
 
 SHINE uses GalSim-compatible YAML configuration with a probabilistic extension: any parameter defined as a distribution (e.g., `type: Normal`) becomes a **latent variable** for inference rather than a fixed simulation value. See `DESIGN.md` Section 6.1 for config examples.
+
+Both the generic `SceneBuilder` and the Euclid `MultiExposureScene` read their probabilistic model from the same `GalaxyConfig` schema in the YAML `gal:` section. The shared `parse_prior()` function in `shine.prior_utils` converts each config entry into a NumPyro sample site. For catalog-centered priors (where the location parameter comes from per-source catalog data), use `center: catalog`:
+
+```yaml
+gal:
+  type: Exponential
+  flux: {type: LogNormal, center: catalog, sigma: 0.5}  # median from catalog
+  half_light_radius: {type: LogNormal, center: catalog, sigma: 0.3}
+  shear:
+    g1: {type: Normal, mean: 0.0, sigma: 0.05}
+    g2: {type: Normal, mean: 0.0, sigma: 0.05}
+  position:
+    type: Offset
+    dx: {type: Normal, mean: 0.0, sigma: 0.05}
+    dy: {type: Normal, mean: 0.0, sigma: 0.05}
+```
 
 ## Development Roadmap
 

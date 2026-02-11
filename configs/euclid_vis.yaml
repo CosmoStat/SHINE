@@ -2,6 +2,11 @@
 #
 # Points to the bundled test data in data/EUC_VIS_SWL/.
 # Selects the 600 brightest sources and runs MAP inference for quick testing.
+#
+# The `gal:` section specifies the probabilistic model: galaxy profile type,
+# which parameters are latent variables (distributions) vs fixed, and what
+# priors are used.  Parameters with `center: catalog` use per-source catalog
+# values as the distribution location at runtime.
 
 data:
   exposure_paths:
@@ -26,12 +31,31 @@ sources:
   det_quality_exclude_mask: 0x78C
   max_sources: 600
 
-priors:
-  shear_prior_sigma: 0.05
-  flux_prior_log_sigma: 0.5
-  hlr_prior_log_sigma: 0.3
-  ellipticity_prior_sigma: 0.3
-  position_prior_sigma: 0.05
+# Galaxy model specification — the probabilistic model is explicit here.
+# Each parameter is either a fixed value or a distribution (= latent variable).
+gal:
+  type: Exponential
+
+  shear:
+    type: G1G2
+    g1: {type: Normal, mean: 0.0, sigma: 0.05}
+    g2: {type: Normal, mean: 0.0, sigma: 0.05}
+
+  # Catalog-centered priors: center="catalog" means the LogNormal median
+  # is set to each source's catalog value at runtime.
+  flux: {type: LogNormal, center: catalog, sigma: 0.5}
+  half_light_radius: {type: LogNormal, center: catalog, sigma: 0.3}
+
+  ellipticity:
+    type: E1E2
+    e1: {type: Normal, mean: 0.0, sigma: 0.3}
+    e2: {type: Normal, mean: 0.0, sigma: 0.3}
+
+  # Position offsets from catalog positions (in arcsec)
+  position:
+    type: Offset
+    dx: {type: Normal, mean: 0.0, sigma: 0.05}
+    dy: {type: Normal, mean: 0.0, sigma: 0.05}
 
 inference:
   method: map
