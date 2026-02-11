@@ -8,6 +8,7 @@ import numpyro.distributions as dist
 
 from shine import galaxy_utils
 from shine.config import DistributionConfig, ShineConfig
+from shine.prior_utils import parse_prior
 
 # Default position prior bounds as fraction of image size
 _DEFAULT_POS_MIN_FRAC = 0.3
@@ -33,10 +34,13 @@ class SceneBuilder:
         """
         self.config = config
 
+    @staticmethod
     def _parse_prior(
-        self, name: str, param_config: Union[float, int, DistributionConfig]
+        name: str, param_config: Union[float, int, DistributionConfig]
     ) -> float:
         """Create a NumPyro sample site from config, or return a fixed value.
+
+        Thin wrapper around :func:`shine.prior_utils.parse_prior`.
 
         Args:
             name: Parameter name for NumPyro sampling.
@@ -48,22 +52,7 @@ class SceneBuilder:
         Raises:
             ValueError: If the distribution type is not recognized.
         """
-        if isinstance(param_config, (float, int)):
-            return float(param_config)
-
-        if param_config.type == "Normal":
-            return numpyro.sample(
-                name, dist.Normal(param_config.mean, param_config.sigma)
-            )
-        if param_config.type == "LogNormal":
-            return numpyro.sample(
-                name, dist.LogNormal(jnp.log(param_config.mean), param_config.sigma)
-            )
-        if param_config.type == "Uniform":
-            return numpyro.sample(
-                name, dist.Uniform(param_config.min, param_config.max)
-            )
-        raise ValueError(f"Unknown distribution type: '{param_config.type}'")
+        return parse_prior(name, param_config)
 
     @staticmethod
     def _resolve_bound(

@@ -42,7 +42,19 @@ cd SHINE
 pip install -e ".[dev,test]"
 ```
 
-## 🚀 Quick Start
+## Euclid VIS Support
+
+SHINE includes a full instrument backend for **Euclid VIS** multi-exposure shear inference (`shine.euclid`):
+
+- Reads quadrant-level FITS exposures, PSF grids, background maps, and MER source catalogs
+- Forward-models the scene as Sersic galaxies convolved with spatially-varying PSFs via JAX-GalSim
+- Multi-tier stamp rendering (64/128/256 px) assigned per source by half-light radius
+- Catalog filtering by SNR, `det_quality_flag`, size, and footprint visibility
+- MAP and NUTS inference for shared shear (g1, g2) and per-source morphology
+
+See `notebooks/euclid_vis_map.ipynb` for an interactive demo.
+
+## Quick Start
 
 ### Run inference from a config file
 

@@ -4,7 +4,7 @@
 
 SHINE (SHear INference Environment) is a JAX-powered framework for probabilistic shear estimation in weak gravitational lensing. It treats shear measurement as a Bayesian inverse problem: generating forward models of the sky, convolving with instrument response, and comparing to observed data to infer posterior distributions of shear parameters.
 
-**Status:** Early development / Alpha. The architectural design is complete (see `DESIGN.md`) but source code implementation has not yet begun — currently only `shine/__init__.py` exists as an empty module.
+**Status:** Early development / Alpha. Core modules (`shine.config`, `shine.inference`) and the first instrument backend (`shine.euclid`) are implemented. See `DESIGN.md` for the full architecture.
 
 **Organization:** CosmoStat Lab (CEA / CNRS)
 **License:** MIT
@@ -14,16 +14,32 @@ SHINE (SHear INference Environment) is a JAX-powered framework for probabilistic
 ```
 SHINE/
 ├── .github/workflows/       # CI/CD (Claude PR assistant + code review)
-│   ├── claude.yml           # Claude PR assistant triggered by @claude mentions
-│   └── claude-code-review.yml # Automated code review on PRs
 ├── assets/
 │   └── logo.png             # Project logo
+├── configs/
+│   └── euclid_vis.yaml      # Example Euclid VIS config
+├── data/
+│   └── EUC_VIS_SWL/         # Euclid VIS test data (Git LFS)
 ├── external/
 │   └── GalSim/              # External GalSim dependency (placeholder)
+├── notebooks/
+│   └── euclid_vis_map.ipynb  # MAP fitting demo notebook
+├── scripts/
+│   └── test_map.py          # Standalone MAP test script
 ├── shine/                   # Main Python package
-│   └── __init__.py          # Currently empty
+│   ├── __init__.py
+│   ├── config.py            # Base inference configuration
+│   ├── prior_utils.py       # Shared prior-parsing (config → NumPyro sample sites)
+│   ├── inference.py         # Inference engine (MAP, NUTS)
+│   └── euclid/              # Euclid VIS instrument backend
+│       ├── config.py        # Euclid-specific configuration
+│       ├── data_loader.py   # FITS data loading & source selection
+│       ├── scene.py         # Multi-exposure scene model (NumPyro)
+│       └── plots.py         # Diagnostic visualizations
+├── tests/
+│   └── test_euclid/         # Euclid module tests (15 tests)
 ├── CLAUDE.md                # This file
-├── DESIGN.md                # Comprehensive architecture & design document
+├── DESIGN.md                # Architecture & design document
 ├── LICENSE                  # MIT License
 ├── README.md                # Project overview and quick start
 └── pyproject.toml           # Build configuration
@@ -36,18 +52,27 @@ SHINE/
 - **JAX-GalSim** — Differentiable galaxy profile rendering and PSF convolution
 - **BlackJAX** — Optional lower-level inference library for custom samplers
 
-## Planned Module Architecture
+## Module Architecture
 
-These modules are specified in `DESIGN.md` but not yet implemented:
+| Module | Status | Purpose |
+|--------|--------|---------|
+| `shine.config` | Implemented | Configuration schema (galaxy model, inference, distributions with `center: catalog`) |
+| `shine.prior_utils` | Implemented | Shared prior-parsing: converts `DistributionConfig` → NumPyro sample sites |
+| `shine.inference` | Implemented | Inference engine (MAP optimization, NUTS via NumPyro) |
+| `shine.euclid` | Implemented | Euclid VIS instrument backend: data loading, scene model, diagnostics |
+| `shine.scene_modelling` | Planned | Generic NumPyro generative model definitions |
+| `shine.simulations` | Planned | Additional survey interfaces (LSST, MeerKAT) |
+| `shine.morphology` | Planned | Non-parametric galaxy profiles (VAE/Diffusion) |
+| `shine.wms` | Planned | Workflow management for HPC/SLURM clusters |
 
-| Module | Purpose |
-|--------|---------|
-| `shine.config` | YAML config parsing and validation (pydantic) |
-| `shine.scene_modelling` | NumPyro generative model definitions |
-| `shine.inference` | Bayesian inference (NUTS, SVI, BlackJAX) |
-| `shine.simulations` | Survey-specific data interfaces (Euclid, LSST, MeerKAT) |
-| `shine.morphology` | Galaxy surface brightness profiles (Sersic, VAE/GAN) |
-| `shine.wms` | Workflow management for HPC/SLURM clusters |
+### `shine.euclid` — Euclid VIS Backend
+
+The first instrument backend, providing end-to-end shear inference on Euclid VIS quadrant-level data:
+
+- **`config.py`** — Pydantic configuration: data paths, source selection (SNR, `det_quality_flag`, size filtering), galaxy model specification via shared `GalaxyConfig` (supports `center: catalog` priors), multi-tier stamp sizes
+- **`data_loader.py`** — Reads quadrant FITS files (SCI/RMS/FLG), PSF grids with bilinear interpolation, background maps, MER catalogs; computes per-source WCS positions, Jacobians, PSF stamps, and visibility
+- **`scene.py`** — NumPyro generative model: renders Sersic galaxies convolved with spatially-varying PSFs via JAX-GalSim; multi-tier stamp sizes (64/128/256 px) with separate `vmap` per tier; standalone `render_model_images()` for post-inference visualization
+- **`plots.py`** — 3-panel diagnostic figures (observed | model | chi residual) with configurable masking
 
 ## Build System
 
@@ -75,20 +100,43 @@ When implementing code for this project, follow these conventions:
 - JAX uses a **functional PRNG** — manage RNG keys carefully, especially within NumPyro models
 - Support reparameterization (e.g., `LocScaleReparam`) for hierarchical models
 
-## Testing Strategy
+## Testing
 
-Not yet implemented. When tests are added, follow this strategy:
+The `tests/test_euclid/` directory contains 15 tests covering:
 
-- **Unit tests:** Verify individual components (e.g., Sersic profile generation)
-- **Integration tests:** End-to-end runs on small synthetic patches
-- **Validation tests:**
-  - Self-consistency: generate data with known shear, infer it back, verify posterior credible intervals
-  - Comparison: compare with standard (non-JAX) GalSim for numerical accuracy
-- **Run tests with:** `pytest` (when test infrastructure exists)
+- **Unit tests:** PSF grid interpolation, exposure reading, WCS transforms, source selection (SNR, flag, size filters), ExposureSet assembly
+- **Scene tests:** Single-exposure rendering, multi-exposure model, multi-tier stamp rendering, `render_model_images()`
+- **Integration test:** End-to-end MAP inference on real Euclid VIS data
+
+Run tests with:
+
+```bash
+pytest tests/test_euclid/ -q
+```
+
+Future testing should also include:
+- Self-consistency: generate data with known shear, infer it back, verify posterior credible intervals
+- Comparison: compare with standard (non-JAX) GalSim for numerical accuracy
 
 ## Configuration Pattern
 
 SHINE uses GalSim-compatible YAML configuration with a probabilistic extension: any parameter defined as a distribution (e.g., `type: Normal`) becomes a **latent variable** for inference rather than a fixed simulation value. See `DESIGN.md` Section 6.1 for config examples.
+
+Both the generic `SceneBuilder` and the Euclid `MultiExposureScene` read their probabilistic model from the same `GalaxyConfig` schema in the YAML `gal:` section. The shared `parse_prior()` function in `shine.prior_utils` converts each config entry into a NumPyro sample site. For catalog-centered priors (where the location parameter comes from per-source catalog data), use `center: catalog`:
+
+```yaml
+gal:
+  type: Exponential
+  flux: {type: LogNormal, center: catalog, sigma: 0.5}  # median from catalog
+  half_light_radius: {type: LogNormal, center: catalog, sigma: 0.3}
+  shear:
+    g1: {type: Normal, mean: 0.0, sigma: 0.05}
+    g2: {type: Normal, mean: 0.0, sigma: 0.05}
+  position:
+    type: Offset
+    dx: {type: Normal, mean: 0.0, sigma: 0.05}
+    dy: {type: Normal, mean: 0.0, sigma: 0.05}
+```
 
 ## Development Roadmap
 
@@ -111,10 +159,16 @@ The primary design document is `DESIGN.md` (343 lines). Consult it for:
 # Install in development mode
 pip install -e .
 
-# Run tests (when available)
+# Run all tests
 pytest
 
-# Format code (when tooling is configured)
+# Run Euclid tests only
+pytest tests/test_euclid/ -q
+
+# Standalone MAP test on bundled data
+python scripts/test_map.py
+
+# Format code
 black shine/
 isort shine/
 ```
@@ -122,8 +176,7 @@ isort shine/
 ## Notes for AI Assistants
 
 - Always consult `DESIGN.md` before implementing new modules — it contains detailed API specifications and code structure examples
-- The project has no runtime dependencies listed in `pyproject.toml` yet; add JAX, NumPyro, JAX-GalSim, etc. when implementing modules
-- No linter/formatter configuration files exist yet (no `.flake8`, `pyproject.toml [tool.black]`, etc.) — create them following the standards in DESIGN.md Section 4.1 when needed
-- No test directory or test infrastructure exists yet — create `tests/` following pytest conventions when adding tests
+- The `shine.euclid` package is the reference instrument backend — follow its patterns (config, data loader, scene model) when adding new instruments
+- Test data for Euclid is stored in `data/EUC_VIS_SWL/` via Git LFS; FITS files are LFS-tracked, README.md and .py scripts are regular git
 - The `external/GalSim/` directory is currently an empty placeholder
-- CI/CD currently only includes Claude-based PR workflows; traditional CI (tests, linting) should be added when code exists to test
+- CI/CD currently only includes Claude-based PR workflows; traditional CI (tests, linting) should be added
