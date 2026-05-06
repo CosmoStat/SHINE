@@ -159,8 +159,8 @@ class SceneBuilder:
                     ny=img_cfg.size_y,
                     scale=img_cfg.pixel_scale,
                     offset=(
-                        x - img_cfg.size_x / 2 + 0.5,
-                        y - img_cfg.size_y / 2 + 0.5,
+                        x - img_cfg.size_x / 2,
+                        y - img_cfg.size_y / 2,
                     ),
                 ).array
 
@@ -262,8 +262,8 @@ class SceneBuilder:
                     ny=img_cfg.size_y,
                     scale=img_cfg.pixel_scale,
                     offset=(
-                        x - img_cfg.size_x / 2 + 0.5,
-                        y - img_cfg.size_y / 2 + 0.5,
+                        x - img_cfg.size_x / 2,
+                        y - img_cfg.size_y / 2,
                     ),
                 ).array
 
